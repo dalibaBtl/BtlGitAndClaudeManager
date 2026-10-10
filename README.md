@@ -142,6 +142,32 @@ Then, in any repo, `/prepare-commits` (optionally with a hint such as
 `/prepare-commits "one commit"`) fills the queue, and you send each commit to
 the terminal from bgcm.
 
+## Going back in history
+
+Right-click a commit column for three ways back to an older state. They differ
+in what happens to the commits after it, so the menu shows why one is
+unavailable instead of hiding it.
+
+| Action                    | Command                  | Newer commits                | Allowed when                                               |
+| ------------------------- | ------------------------ | ---------------------------- | ---------------------------------------------------------- |
+| **Reset to this commit…** | `git reset --hard <sha>` | leave the branch             | working tree is clean and none of them is pushed           |
+| **Checkout (detached)**   | `git switch --detach`    | untouched; you are just away | working tree is clean                                      |
+| **Revert this commit…**   | `git revert <sha>`       | untouched; a new undo commit | always (merge commits need `-m`, do those in the terminal) |
+
+Before a reset the server tags the current HEAD as `bgcm/backup-<timestamp>`,
+so the dropped commits stay reachable; `git reset --hard bgcm/backup-…` (or a
+reset from the UI, since the tag keeps them in the log) brings them back.
+
+After a checkout a **Detached HEAD** banner appears above the columns with
+**Back to \<branch\>** (`git switch` to the branch you came from) and **Branch
+from here…** (`git switch -c`) for the case where you changed something in the
+old state and want to keep it.
+
+A workflow that fits this well: commit small and often (the prepared-commit
+queue makes that cheap), then when something goes wrong _Checkout_ the last
+good commit to confirm it, go _Back_, and either _Reset_ (not pushed yet) or
+_Revert_ (already pushed).
+
 ## Development
 
 ```bash
