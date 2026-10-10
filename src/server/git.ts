@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { parsePorcelainV2 } from '../shared/porcelain.js';
 import type {
   CommitInfo,
+  GitOperation,
   RepoFile,
   RepoStatus,
   RepoSummary,
@@ -59,21 +60,57 @@ export function git(cwd: string, args: string[], okCodes: number[] = [0]): Promi
 export async function status(repo: string, includeIgnored: boolean): Promise<RepoStatus> {
   const args = ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'];
   if (includeIgnored) args.push('--ignored=matching');
-  const out = await git(repo, args);
-  return parsePorcelainV2(out, repo);
+  const [out, operation] = await Promise.all([git(repo, args), detectOperation(repo)]);
+  return { ...parsePorcelainV2(out, repo), operation };
 }
 
 /** Cheap summary used for the folder tree's dirty counts. */
 export async function summary(repo: string): Promise<RepoSummary> {
-  const out = await git(repo, [
-    'status',
-    '--porcelain=v2',
-    '--branch',
-    '-z',
-    '--untracked-files=all',
+  const [out, operation] = await Promise.all([
+    git(repo, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all']),
+    detectOperation(repo),
   ]);
   const { entries, ...rest } = parsePorcelainV2(out, repo);
-  return rest;
+  return { ...rest, operation };
+}
+
+/**
+ * Which multi-step operation, if any, is in progress. Reads marker files in
+ * the git dir directly (no git process), so it is cheap enough to run for
+ * every repo on each refresh. Linked worktrees keep their state in the
+ * per-worktree git dir named by the `.git` file.
+ */
+export async function detectOperation(repo: string): Promise<GitOperation | null> {
+  const gitDir = await resolveGitDir(repo);
+  if (!gitDir) return null;
+  const has = (name: string) =>
+    stat(path.join(gitDir, name)).then(
+      () => true,
+      () => false,
+    );
+  if ((await has('rebase-merge')) || (await has('rebase-apply'))) return 'rebase';
+  if (await has('MERGE_HEAD')) return 'merge';
+  if (await has('CHERRY_PICK_HEAD')) return 'cherry-pick';
+  if (await has('REVERT_HEAD')) return 'revert';
+  return null;
+}
+
+/** `.git` as a directory, or the directory a `.git` file points at (worktrees, submodules). */
+async function resolveGitDir(repo: string): Promise<string | null> {
+  const dotGit = path.join(repo, '.git');
+  try {
+    const st = await stat(dotGit);
+    if (st.isDirectory()) return dotGit;
+    const m = /^gitdir:\s*(.+)\s*$/m.exec(await readFile(dotGit, 'utf8'));
+    return m?.[1] ? path.resolve(repo, m[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Marks conflicted paths as resolved by staging them. */
+export function resolve(repo: string, files: string[]): Promise<string> {
+  return git(repo, ['add', '--', ...files]);
 }
 
 /**

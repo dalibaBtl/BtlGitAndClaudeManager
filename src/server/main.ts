@@ -294,6 +294,12 @@ class App {
           `gh repo create ${shellQuote(run.name)} --source . --${run.visibility} --push`,
         ];
       }
+      case 'operation': {
+        this.assertRepo(run.repo);
+        const current = await gitOps.detectOperation(run.repo);
+        if (current !== run.op) throw new Error(`no ${run.op} in progress`);
+        return [cd(run.repo), `git ${run.op} --${run.step}`];
+      }
       case 'gh-login':
         return ['gh auth login --hostname github.com --git-protocol https --web'];
       case 'gh-setup-git':
@@ -576,6 +582,15 @@ async function handleHttp(
       const repo = str(q('repo'), 'repo');
       app.assertRepo(repo);
       sendJson(res, 200, { commits: await gitOps.log(repo, Number(q('n') ?? 30) || 30) });
+      return;
+    }
+    case 'POST /api/repo/resolve': {
+      const repo = str(body.repo, 'repo');
+      app.assertRepo(repo);
+      const files = Array.isArray(body.files) ? body.files.filter(isString) : [];
+      if (files.length === 0) throw new Error('no files');
+      await gitOps.resolve(repo, files);
+      sendJson(res, 200, {});
       return;
     }
     case 'POST /api/repo/stash': {

@@ -26,7 +26,14 @@ export interface RepoSummary {
   ahead: number;
   behind: number;
   dirtyCount: number;
+  /** Paths with unresolved conflicts. */
+  conflicts: number;
+  /** A multi-step git operation that was started and not finished. */
+  operation: GitOperation | null;
 }
+
+/** Git operations that leave state in `.git` until continued or aborted. */
+export type GitOperation = 'merge' | 'rebase' | 'cherry-pick' | 'revert';
 
 /** Status of a single path from `git status --porcelain=v2`. */
 export interface StatusEntry {
@@ -159,6 +166,7 @@ export type TerminalAction =
   | { action: 'publish'; repo: string; name: string; visibility: 'private' | 'public' }
   | { action: 'gh-login' }
   | { action: 'gh-setup-git' }
+  | { action: 'operation'; repo: string; op: GitOperation; step: 'continue' | 'abort' }
   | { action: 'resume'; session: ClaudeSession }
   | { action: 'claude'; dir: string }
   | { action: 'reword'; repo: string; sha: string; message: string }

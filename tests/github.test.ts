@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { parseAuthStatus, parseRepoList } from '../src/server/github.js';
+import { parseAuthStatus, parseRepoList, usesGhHelper } from '../src/server/github.js';
+
+describe('usesGhHelper', () => {
+  it('accepts the host-scoped entries gh auth setup-git writes', () => {
+    expect(
+      usesGhHelper([
+        'credential.https://github.com.helper ',
+        'credential.https://github.com.helper !/usr/bin/gh auth git-credential',
+      ]),
+    ).toBe(true);
+    expect(usesGhHelper(['credential.helper !gh auth git-credential'])).toBe(true);
+    expect(usesGhHelper(['credential.helper libsecret'])).toBe(false);
+    expect(usesGhHelper([])).toBe(false);
+  });
+});
 
 describe('parseAuthStatus', () => {
   it('reads the account from gh auth status output', () => {

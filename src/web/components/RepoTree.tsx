@@ -1,7 +1,7 @@
 import { signal } from '@preact/signals';
 import { statusLetter } from '../../shared/porcelain.js';
 import { joinNative } from '../../shared/paths.js';
-import type { CommitInfo, PullMode, RepoFile } from '../../shared/types.js';
+import type { CommitInfo, GitOperation, PullMode, RepoFile } from '../../shared/types.js';
 import { api, socket } from '../api.js';
 import {
   changedOnly,
@@ -158,6 +158,13 @@ export function RepoTree() {
           Stash all
         </button>
       </header>
+      {repoStatus.value?.operation && (
+        <OperationBanner
+          repo={repo}
+          op={repoStatus.value.operation}
+          conflicts={repoStatus.value.conflicts}
+        />
+      )}
       <div class="columns">
         <WorkingTreeColumn repo={repo} />
         {commits.value.map((c) => (
@@ -165,6 +172,60 @@ export function RepoTree() {
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * Shown while a merge/rebase/cherry-pick/revert is unfinished. Conflicted
+ * files are red `U` rows; "Mark resolved" in their menu stages them. Continue
+ * and Abort go through the terminal because `--continue` may open an editor.
+ */
+function OperationBanner({
+  repo,
+  op,
+  conflicts,
+}: {
+  repo: string;
+  op: GitOperation;
+  conflicts: number;
+}) {
+  const run = (step: 'continue' | 'abort') =>
+    socket.send({ type: 'term-run', run: { action: 'operation', repo, op, step } });
+  return (
+    <div class={`op-banner ${conflicts > 0 ? 'conflicts' : ''}`}>
+      <b>{op} in progress</b>
+      <span>
+        {conflicts > 0
+          ? `${conflicts} conflicted file(s): fix them, then "Mark resolved" in the file menu`
+          : 'all conflicts resolved'}
+      </span>
+      <button
+        class="primary"
+        disabled={conflicts > 0}
+        title={`git ${op} --continue`}
+        onClick={() => run('continue')}
+      >
+        Continue
+      </button>
+      <button
+        title={`git ${op} --abort`}
+        onClick={() =>
+          guard(async () => {
+            if (
+              await askConfirm(
+                `Abort ${op}`,
+                `git ${op} --abort returns the repo to the state before the ${op}.`,
+                'Abort',
+              )
+            ) {
+              run('abort');
+            }
+          })
+        }
+      >
+        Abort
+      </button>
+    </div>
   );
 }
 
@@ -401,6 +462,16 @@ function commitMenu(repo: string, commit: CommitInfo): MenuItem[] {
 function fileMenu(repo: string, node: TreeNode, sha: string | null): MenuItem[] {
   const abs = joinNative(repo, node.path);
   const items: MenuItem[] = [];
+  if (sha === null && node.letter === 'U') {
+    items.push({
+      label: 'Mark resolved (git add)',
+      onClick: () =>
+        guard(async () => {
+          await api.post('/api/repo/resolve', { repo, files: [node.path] });
+          notify('info', `${node.path} marked resolved`);
+        }),
+    });
+  }
   if (sha === null) {
     items.push(
       {

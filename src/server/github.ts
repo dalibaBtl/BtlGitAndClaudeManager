@@ -38,11 +38,16 @@ export async function status(): Promise<GitHubStatus> {
     gitCredentialHelpers(),
   ]);
   const parsed = parseAuthStatus(auth.out, auth.code);
-  return {
-    installed: true,
-    ...parsed,
-    gitConfigured: helper.some((h) => /gh auth git-credential/.test(h)),
-  };
+  return { installed: true, ...parsed, gitConfigured: usesGhHelper(helper) };
+}
+
+/**
+ * Whether any credential helper entry routes through `gh`. `gh auth setup-git`
+ * writes host-scoped keys (`credential.https://github.com.helper`), so the
+ * lines come from `git config --get-regexp`, not from `credential.helper`.
+ */
+export function usesGhHelper(configLines: string[]): boolean {
+  return configLines.some((line) => /^credential\..*helper\s+.*gh auth git-credential/.test(line));
 }
 
 /**
@@ -99,7 +104,7 @@ function gitCredentialHelpers(): Promise<string[]> {
   return new Promise((resolve) => {
     execFile(
       'git',
-      ['config', '--global', '--get-all', 'credential.helper'],
+      ['config', '--global', '--get-regexp', '^credential\\..*helper$'],
       { encoding: 'utf8' },
       (_err, stdout) =>
         resolve(

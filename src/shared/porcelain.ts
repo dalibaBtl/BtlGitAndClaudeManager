@@ -20,6 +20,8 @@ export function parsePorcelainV2(raw: string, repoPath: string): RepoStatus {
     ahead: 0,
     behind: 0,
     dirtyCount: 0,
+    conflicts: 0,
+    operation: null,
     entries: [],
   };
   const tokens = raw.split('\0');
@@ -64,6 +66,7 @@ export function parsePorcelainV2(raw: string, repoPath: string): RepoStatus {
     }
   }
   status.dirtyCount = status.entries.filter((e) => e.kind !== 'ignored').length;
+  status.conflicts = status.entries.filter((e) => e.kind === 'unmerged').length;
   return status;
 }
 

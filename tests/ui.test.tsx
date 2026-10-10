@@ -41,7 +41,16 @@ describe('FolderTree', () => {
     state.summaries.value = new Map([
       [
         '/dev/clean',
-        { path: '/dev/clean', branch: 'main', upstream: null, ahead: 0, behind: 0, dirtyCount: 0 },
+        {
+          path: '/dev/clean',
+          branch: 'main',
+          upstream: null,
+          ahead: 0,
+          behind: 0,
+          dirtyCount: 0,
+          conflicts: 0,
+          operation: null,
+        },
       ],
       [
         '/dev/ahead',
@@ -52,6 +61,8 @@ describe('FolderTree', () => {
           ahead: 1,
           behind: 2,
           dirtyCount: 0,
+          conflicts: 0,
+          operation: null,
         },
       ],
       [
@@ -63,6 +74,8 @@ describe('FolderTree', () => {
           ahead: 0,
           behind: 0,
           dirtyCount: 0,
+          conflicts: 0,
+          operation: null,
         },
       ],
       [
@@ -74,6 +87,8 @@ describe('FolderTree', () => {
           ahead: 2,
           behind: 0,
           dirtyCount: 3,
+          conflicts: 0,
+          operation: null,
         },
       ],
     ]);
@@ -171,6 +186,8 @@ describe('RepoTree', () => {
       ahead: 0,
       behind: 1,
       dirtyCount: 2,
+      conflicts: 0,
+      operation: null,
     };
     state.repoFiles.value = [
       {
