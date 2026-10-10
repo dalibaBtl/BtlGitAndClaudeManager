@@ -581,6 +581,30 @@ select.mode {
   color: var(--fg-faint);
   cursor: default;
 }
+.picker-list li .detail {
+  display: block;
+  color: var(--fg-dim);
+  font-family: var(--sans);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* GitHub status chip */
+.chip {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+.chip.ok {
+  color: var(--repo);
+  border-color: var(--repo);
+}
+.chip.warn {
+  color: var(--dirty);
+  border-color: var(--dirty);
+}
 
 /* notices */
 .notices {

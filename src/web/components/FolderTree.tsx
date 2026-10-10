@@ -1,7 +1,7 @@
 import { signal } from '@preact/signals';
 import { api, socket } from '../api.js';
 import { joinNative } from '../../shared/paths.js';
-import type { ClaudeSession, FolderNode, RepoSummary } from '../../shared/types.js';
+import type { ClaudeSession, FolderNode, GitHubRepo, RepoSummary } from '../../shared/types.js';
 import { UNPLACED_ROOT, treeNodes, type TreeMode, type TreeNode } from '../state.js';
 import {
   childrenOf,
@@ -20,7 +20,8 @@ import {
   summaries,
 } from '../state.js';
 import { openMenu, type MenuItem } from './ContextMenu.jsx';
-import { askConfirm, askFolder, askText } from './Dialogs.jsx';
+import { askConfirm, askFolder, askPick, askText } from './Dialogs.jsx';
+import { GitHubChip, githubStatus } from './GitHubChip.jsx';
 
 const expanded = signal<Set<string>>(new Set());
 
@@ -104,6 +105,7 @@ export function FolderTree() {
         <button class="primary" title="Add a folder to scan" onClick={addRoot}>
           + Add
         </button>
+        <GitHubChip />
       </header>
       <div class="tree">
         {roots.length === 0 && (
@@ -326,7 +328,28 @@ function folderMenu(node: TreeNode): MenuItem[] {
           }),
       },
       {
-        label: 'Clone repo here…',
+        label: 'Clone from GitHub…',
+        disabled: !githubStatus.value?.loggedIn,
+        onClick: () =>
+          guard(async () => {
+            const repo = await askPick<string>(
+              'Clone from GitHub',
+              'Search your repositories…',
+              async () => {
+                const r = await api.get<{ repos: GitHubRepo[] }>('/api/github/repos');
+                return r.repos.map((it) => ({
+                  label: it.nameWithOwner,
+                  detail: `${it.isPrivate ? 'private' : 'public'}${it.description ? ' · ' + it.description : ''}`,
+                  value: it.nameWithOwner,
+                }));
+              },
+            );
+            if (repo)
+              socket.send({ type: 'term-run', run: { action: 'gh-clone', dir: node.path, repo } });
+          }),
+      },
+      {
+        label: 'Clone from URL…',
         onClick: () =>
           guard(async () => {
             const url = await askText('Clone repository', `git clone <url> into ${node.path}`, {

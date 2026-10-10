@@ -153,12 +153,44 @@ export type ServerMessage =
 export type TerminalAction =
   | { action: 'cd'; dir: string }
   | { action: 'push'; repo: string }
-  | { action: 'pull'; repo: string }
+  | { action: 'pull'; repo: string; mode: PullMode }
   | { action: 'clone'; dir: string; url: string }
+  | { action: 'gh-clone'; dir: string; repo: string }
+  | { action: 'publish'; repo: string; name: string; visibility: 'private' | 'public' }
+  | { action: 'gh-login' }
+  | { action: 'gh-setup-git' }
   | { action: 'resume'; session: ClaudeSession }
   | { action: 'claude'; dir: string }
   | { action: 'reword'; repo: string; sha: string; message: string }
   | { action: 'commit'; repo: string; id: string };
+
+/**
+ * How a pull integrates upstream changes. `ff-only` is the default because it
+ * can never leave the repo in a merge state; the other two are offered only
+ * when the branches have diverged.
+ */
+export type PullMode = 'ff-only' | 'rebase' | 'merge';
+
+/** What the `gh` CLI reports about GitHub access on this machine. */
+export interface GitHubStatus {
+  /** `gh` is on `PATH`. */
+  installed: boolean;
+  /** `gh auth status` succeeded for github.com. */
+  loggedIn: boolean;
+  /** Account name when logged in. */
+  user: string | null;
+  /** git's credential helper is wired to `gh` (`gh auth setup-git`). */
+  gitConfigured: boolean;
+}
+
+/** A repository as listed by `gh repo list`. */
+export interface GitHubRepo {
+  nameWithOwner: string;
+  description: string;
+  isPrivate: boolean;
+  /** ISO-8601. */
+  updatedAt: string;
+}
 
 /** Messages sent from client to server over the WebSocket. */
 export type ClientMessage =

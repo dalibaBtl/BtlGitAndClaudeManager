@@ -18,6 +18,7 @@ import type {
 import { cacheDir, loadConfig, saveConfig } from './config.js';
 import { onPath, openTerminal, openWithDefault } from './external.js';
 import * as gitOps from './git.js';
+import * as github from './github.js';
 import { addPrepared, commitSteps, listPrepared, removePrepared, shellQuote } from './prepared.js';
 import { listSubdirs, scanRoot } from './scanner.js';
 import { SessionIndex, claudeProjectsDir } from './sessions.js';
@@ -255,17 +256,48 @@ class App {
     switch (run.action) {
       case 'cd':
         return [cd(run.dir)];
-      case 'push':
+      case 'push': {
         this.assertRepo(run.repo);
-        return [cd(run.repo), 'git push'];
-      case 'pull':
+        // A branch without tracking needs `-u` or git refuses; without any remote
+        // there is nothing to push to and Publish is the right action instead.
+        if (await gitOps.hasUpstream(run.repo)) return [cd(run.repo), 'git push'];
+        const remotes = await gitOps.remotes(run.repo);
+        if (remotes.length === 0) {
+          throw new Error('no remote configured; use "Publish to GitHub" first');
+        }
+        const remote = remotes.includes('origin') ? 'origin' : (remotes[0] as string);
+        return [cd(run.repo), `git push -u ${shellQuote(remote)} HEAD`];
+      }
+      case 'pull': {
         this.assertRepo(run.repo);
-        return [cd(run.repo), 'git pull'];
+        const flag =
+          run.mode === 'rebase' ? '--rebase' : run.mode === 'merge' ? '--no-rebase' : '--ff-only';
+        return [cd(run.repo), `git pull ${flag}`];
+      }
       case 'clone':
         if (!/^[\w.+-]+(:|@|:\/\/)[^\s'"]+$/.test(run.url) && !existsSync(run.url)) {
           throw new Error('clone URL looks invalid');
         }
         return [cd(run.dir), `git clone ${shellQuote(run.url)}`];
+      case 'gh-clone':
+        if (!/^[\w.-]+\/[\w.-]+$/.test(run.repo)) throw new Error('expected owner/name');
+        return [cd(run.dir), `gh repo clone ${shellQuote(run.repo)}`];
+      case 'publish': {
+        this.assertRepo(run.repo);
+        if (!/^[\w.-]+$/.test(run.name))
+          throw new Error('repository name may use letters, digits, . _ -');
+        if ((await gitOps.remotes(run.repo)).length > 0) {
+          throw new Error('repo already has a remote; use Push');
+        }
+        return [
+          cd(run.repo),
+          `gh repo create ${shellQuote(run.name)} --source . --${run.visibility} --push`,
+        ];
+      }
+      case 'gh-login':
+        return ['gh auth login --hostname github.com --git-protocol https --web'];
+      case 'gh-setup-git':
+        return ['gh auth setup-git'];
       case 'resume':
         return [cd(run.session.cwd), `claude --resume ${shellQuote(run.session.id)}`];
       case 'claude':
@@ -597,6 +629,12 @@ async function handleHttp(
       sendJson(res, 200, {});
       return;
     }
+    case 'GET /api/github/status':
+      sendJson(res, 200, await github.status());
+      return;
+    case 'GET /api/github/repos':
+      sendJson(res, 200, { repos: await github.listRepos() });
+      return;
     case 'GET /api/env':
       sendJson(res, 200, {
         platform: process.platform,

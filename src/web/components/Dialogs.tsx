@@ -33,7 +33,67 @@ interface ConfirmSpec {
   resolve: (v: boolean) => void;
 }
 
-const current = signal<PromptSpec | PickerSpec | ConfirmSpec | null>(null);
+/** One button of a multiple-choice dialog. */
+export interface Choice<T> {
+  label: string;
+  value: T;
+  primary?: boolean;
+}
+
+interface ChoiceSpec {
+  kind: 'choice';
+  title: string;
+  text: string;
+  choices: Choice<unknown>[];
+  resolve: (v: unknown) => void;
+}
+
+/** One row of a searchable pick list. */
+export interface PickItem<T> {
+  label: string;
+  detail?: string;
+  value: T;
+}
+
+interface PickSpec {
+  kind: 'pick';
+  title: string;
+  placeholder: string;
+  load: () => Promise<PickItem<unknown>[]>;
+  resolve: (v: unknown) => void;
+}
+
+const current = signal<PromptSpec | PickerSpec | ConfirmSpec | ChoiceSpec | PickSpec | null>(null);
+
+/** Asks the user to pick one of a few labelled actions; `null` when dismissed. */
+export function askChoice<T>(title: string, text: string, choices: Choice<T>[]): Promise<T | null> {
+  return new Promise((resolve) => {
+    current.value = {
+      kind: 'choice',
+      title,
+      text,
+      choices,
+      resolve: resolve as (v: unknown) => void,
+    };
+  });
+}
+
+/** Searchable list loaded lazily (e.g. from a CLI); resolves the chosen value or `null`. */
+export function askPick<T>(
+  title: string,
+  placeholder: string,
+  load: () => Promise<PickItem<T>[]>,
+): Promise<T | null> {
+  return new Promise((resolve) => {
+    current.value = {
+      kind: 'pick',
+      title,
+      placeholder,
+      load: load as () => Promise<PickItem<unknown>[]>,
+      resolve: resolve as (v: unknown) => void,
+    };
+  });
+}
 
 export function askText(
   title: string,
@@ -99,8 +159,93 @@ export function Dialogs() {
         {spec.kind === 'prompt' && <PromptBody spec={spec} />}
         {spec.kind === 'picker' && <PickerBody spec={spec} />}
         {spec.kind === 'confirm' && <ConfirmBody spec={spec} />}
+        {spec.kind === 'choice' && <ChoiceBody spec={spec} />}
+        {spec.kind === 'pick' && <PickBody spec={spec} />}
       </div>
     </div>
+  );
+}
+
+function ChoiceBody({ spec }: { spec: ChoiceSpec }) {
+  return (
+    <>
+      <p>{spec.text}</p>
+      <div class="dialog-actions">
+        <button
+          onClick={() => {
+            spec.resolve(null);
+            close();
+          }}
+        >
+          Cancel
+        </button>
+        {spec.choices.map((c) => (
+          <button
+            key={c.label}
+            class={c.primary ? 'primary' : ''}
+            onClick={() => {
+              spec.resolve(c.value);
+              close();
+            }}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function PickBody({ spec }: { spec: PickSpec }) {
+  const [items, setItems] = useState<PickItem<unknown>[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+    spec
+      .load()
+      .then(setItems, (e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+  const q = filter.trim().toLowerCase();
+  const shown = (items ?? []).filter(
+    (it) => !q || it.label.toLowerCase().includes(q) || (it.detail ?? '').toLowerCase().includes(q),
+  );
+  const choose = (it: PickItem<unknown>) => {
+    spec.resolve(it.value);
+    close();
+  };
+  return (
+    <>
+      <input
+        ref={ref}
+        placeholder={spec.placeholder}
+        value={filter}
+        onInput={(e) => setFilter((e.target as HTMLInputElement).value)}
+        onKeyDown={(e) => e.key === 'Enter' && shown[0] && choose(shown[0])}
+      />
+      <ul class="picker-list">
+        {items === null && !error && <li class="empty">Loading…</li>}
+        {error && <li class="empty">{error}</li>}
+        {items && shown.length === 0 && <li class="empty">No matches</li>}
+        {shown.slice(0, 200).map((it) => (
+          <li key={it.label} onClick={() => choose(it)}>
+            <span>{it.label}</span>
+            {it.detail && <span class="detail">{it.detail}</span>}
+          </li>
+        ))}
+      </ul>
+      <div class="dialog-actions">
+        <button
+          onClick={() => {
+            spec.resolve(null);
+            close();
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </>
   );
 }
 

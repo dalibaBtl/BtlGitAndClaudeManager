@@ -1,7 +1,7 @@
 import { signal } from '@preact/signals';
 import { statusLetter } from '../../shared/porcelain.js';
 import { joinNative } from '../../shared/paths.js';
-import type { CommitInfo, RepoFile } from '../../shared/types.js';
+import type { CommitInfo, PullMode, RepoFile } from '../../shared/types.js';
 import { api, socket } from '../api.js';
 import {
   changedOnly,
@@ -19,8 +19,9 @@ import {
   selectedRepo,
 } from '../state.js';
 import { openMenu, type MenuItem } from './ContextMenu.jsx';
-import { askConfirm, askText } from './Dialogs.jsx';
+import { askChoice, askConfirm, askText } from './Dialogs.jsx';
 import { relativeTime } from './FolderTree.jsx';
+import { githubStatus } from './GitHubChip.jsx';
 import { PreparedQueue } from './PreparedQueue.jsx';
 
 /** A node of the file tree built from flat repo-relative paths. */
@@ -119,12 +120,25 @@ export function RepoTree() {
           />
           hide ignored
         </label>
-        <button onClick={() => socket.send({ type: 'term-run', run: { action: 'pull', repo } })}>
+        <button
+          title="git pull --ff-only; asks when the branches have diverged"
+          onClick={() => void pull(repo)}
+        >
           Pull
         </button>
-        <button onClick={() => socket.send({ type: 'term-run', run: { action: 'push', repo } })}>
-          Push
-        </button>
+        {repoStatus.value?.upstream === null ? (
+          <button
+            class="primary"
+            title="Create the repository on GitHub and push (gh repo create)"
+            onClick={() => void publish(repo)}
+          >
+            Publish to GitHub
+          </button>
+        ) : (
+          <button onClick={() => socket.send({ type: 'term-run', run: { action: 'push', repo } })}>
+            Push
+          </button>
+        )}
         <button
           onClick={() =>
             guard(async () => {
@@ -152,6 +166,55 @@ export function RepoTree() {
       </div>
     </section>
   );
+}
+
+/**
+ * Pull is fast-forward only unless the branches have diverged; then the user
+ * picks rebase or merge explicitly so a merge state never appears by surprise.
+ */
+async function pull(repo: string): Promise<void> {
+  const s = repoStatus.value;
+  let mode: PullMode = 'ff-only';
+  if (s && s.ahead > 0 && s.behind > 0) {
+    const choice = await askChoice<PullMode>(
+      'Branches have diverged',
+      `Local is ${s.ahead} ahead and ${s.behind} behind ${s.upstream ?? 'upstream'}. Rebase keeps history linear; merge creates a merge commit. Both may raise conflicts you resolve in the terminal.`,
+      [
+        { label: 'Rebase', value: 'rebase', primary: true },
+        { label: 'Merge', value: 'merge' },
+      ],
+    );
+    if (!choice) return;
+    mode = choice;
+  }
+  socket.send({ type: 'term-run', run: { action: 'pull', repo, mode } });
+}
+
+/** Creates the GitHub repository for a local repo that has no remote yet, then pushes. */
+async function publish(repo: string): Promise<void> {
+  const gh = githubStatus.value;
+  if (!gh?.loggedIn) {
+    notify('error', 'Sign in to GitHub first (GitHub button in the Folders header)');
+    return;
+  }
+  const name = await askText('Publish to GitHub', 'Repository name', {
+    initial: repo.split(/[\\/]/).pop() ?? '',
+    okLabel: 'Next',
+  });
+  if (!name) return;
+  const visibility = await askChoice<'private' | 'public'>(
+    'Visibility',
+    `Create github.com/${gh.user}/${name.trim()} as:`,
+    [
+      { label: 'Private', value: 'private', primary: true },
+      { label: 'Public', value: 'public' },
+    ],
+  );
+  if (!visibility) return;
+  socket.send({
+    type: 'term-run',
+    run: { action: 'publish', repo, name: name.trim(), visibility },
+  });
 }
 
 function WorkingTreeColumn({ repo }: { repo: string }) {

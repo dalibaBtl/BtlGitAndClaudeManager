@@ -79,6 +79,29 @@ when installed, otherwise Windows PowerShell.
   typed into the embedded terminal instead of run by the server, so SSH
   passphrases, hooks and signing behave exactly as in your shell.
 
+## GitHub
+
+bgcm holds no GitHub credentials. It relies on the `gh` CLI and git's own
+credential handling, and drives the one-time setup from the UI:
+
+1. Install `gh` (`sudo apt install gh`, `winget install GitHub.cli`, see
+   https://github.com/cli/cli#installation).
+2. Click the **GitHub** chip in the Folders header → _Sign in to GitHub_. The
+   terminal runs `gh auth login --web`; finish the device flow in the browser.
+3. _Use gh credentials for git_ runs `gh auth setup-git`, so plain `git
+push`/`pull` over HTTPS authenticate through `gh`. SSH remotes keep working
+   as before and need no setup here.
+
+With that in place:
+
+- **Clone from GitHub…** (folder context menu) lists your repositories and
+  those of your organisations; **Clone from URL…** stays for everything else.
+- **Publish to GitHub** appears instead of Push on a repo without a remote
+  and runs `gh repo create <name> --source . --private|--public --push`.
+- **Push** on a branch without tracking uses `git push -u origin HEAD`.
+- **Pull** is `git pull --ff-only`. When local and upstream have diverged the
+  app asks for _Rebase_ or _Merge_; conflicts are resolved in the terminal.
+
 ## Prepared commits
 
 A prepared commit is a JSON file in `<repo>/.bgcm/prepared/` (the folder is

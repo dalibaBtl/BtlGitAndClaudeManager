@@ -198,6 +198,19 @@ export function parseLogRecord(
   };
 }
 
+/** Whether the current branch tracks an upstream. */
+export async function hasUpstream(repo: string): Promise<boolean> {
+  return git(repo, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])
+    .then(() => true)
+    .catch(() => false);
+}
+
+/** Configured remote names. */
+export async function remotes(repo: string): Promise<string[]> {
+  const out = await git(repo, ['remote']);
+  return out.split('\n').filter(Boolean);
+}
+
 /** Current HEAD commit, or `null` in an empty repo. */
 export async function headSha(repo: string): Promise<string | null> {
   return git(repo, ['rev-parse', '--verify', '-q', 'HEAD'])
