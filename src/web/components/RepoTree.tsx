@@ -1,7 +1,14 @@
 import { signal } from '@preact/signals';
 import { statusLetter } from '../../shared/porcelain.js';
 import { joinNative } from '../../shared/paths.js';
-import type { CommitInfo, GitOperation, PullMode, RepoFile } from '../../shared/types.js';
+import type {
+  CommitInfo,
+  GitOperation,
+  PullMode,
+  RepoFile,
+  RepoSummary,
+} from '../../shared/types.js';
+import { historyBlockers } from '../commit-actions.js';
 import { api, socket } from '../api.js';
 import {
   changedOnly,
@@ -160,6 +167,9 @@ export function RepoTree() {
         </button>
         <GitHubChip />
       </header>
+      {repoStatus.value && repoStatus.value.branch === null && !repoStatus.value.operation && (
+        <DetachedBanner repo={repo} status={repoStatus.value} />
+      )}
       {repoStatus.value?.operation && (
         <OperationBanner
           repo={repo}
@@ -451,6 +461,7 @@ function commitMenu(repo: string, commit: CommitInfo): MenuItem[] {
           });
         }),
     },
+    ...historyItems(repo, commit),
     {
       label: 'Copy SHA',
       onClick: () => {
@@ -459,6 +470,86 @@ function commitMenu(repo: string, commit: CommitInfo): MenuItem[] {
       },
     },
   ];
+}
+
+/** Reset / checkout / revert entries for a commit, with their blockers in the label. */
+function historyItems(repo: string, commit: CommitInfo): MenuItem[] {
+  const b = historyBlockers(commit, repoStatus.value, commits.value);
+  const idx = commits.value.findIndex((c) => c.sha === commit.sha);
+  const dropping = idx > 0 ? idx : 0;
+  const run = (action: 'reset' | 'revert' | 'checkout') =>
+    socket.send({ type: 'term-run', run: { action, repo, sha: commit.sha } });
+  return [
+    {
+      label: b.reset ? `Reset to this commit… (${b.reset})` : 'Reset to this commit…',
+      disabled: b.reset !== null,
+      danger: true,
+      onClick: () =>
+        guard(async () => {
+          const ok = await askConfirm(
+            'Reset branch',
+            `git reset --hard ${commit.shortSha}: the ${dropping} newer commit(s) leave the branch. A backup tag is created first, so they stay recoverable.`,
+            'Reset',
+          );
+          if (ok) run('reset');
+        }),
+    },
+    {
+      label: b.checkout ? `Checkout (detached)… (${b.checkout})` : 'Checkout (detached)',
+      disabled: b.checkout !== null,
+      onClick: () => run('checkout'),
+    },
+    {
+      label: 'Revert this commit…',
+      onClick: () =>
+        guard(async () => {
+          const ok = await askConfirm(
+            'Revert commit',
+            `git revert ${commit.shortSha} adds a new commit that undoes "${commit.subject}". The editor for its message opens in the terminal.`,
+            'Revert',
+          );
+          if (ok) run('revert');
+        }),
+    },
+  ];
+}
+
+/** Shown while HEAD is detached (after "Checkout"); offers the way back or a branch to keep work. */
+function DetachedBanner({ repo, status }: { repo: string; status: RepoSummary }) {
+  const prev = status.previousBranch ?? null;
+  return (
+    <div class="op-banner detached">
+      <b>Detached HEAD</b>
+      <span>
+        Looking at an old state; new commits here belong to no branch until you create one.
+      </span>
+      <button
+        class="primary"
+        disabled={!prev}
+        title={prev ? `git switch ${prev}` : 'git does not remember the previous branch'}
+        onClick={() => socket.send({ type: 'term-run', run: { action: 'switch-back', repo } })}
+      >
+        Back to {prev ?? 'branch'}
+      </button>
+      <button
+        onClick={() =>
+          guard(async () => {
+            const name = await askText('Branch from here', 'New branch name', {
+              okLabel: 'Create',
+            });
+            if (name?.trim()) {
+              socket.send({
+                type: 'term-run',
+                run: { action: 'branch-here', repo, name: name.trim() },
+              });
+            }
+          })
+        }
+      >
+        Branch from here…
+      </button>
+    </div>
+  );
 }
 
 function fileMenu(repo: string, node: TreeNode, sha: string | null): MenuItem[] {

@@ -611,6 +611,10 @@ select.mode {
   background: rgba(88, 166, 255, 0.1);
   border-left: 3px solid var(--ahead);
 }
+.op-banner.detached {
+  background: rgba(224, 184, 74, 0.1);
+  border-left-color: var(--dirty);
+}
 .op-banner.conflicts {
   background: rgba(248, 81, 73, 0.1);
   border-left-color: var(--del);

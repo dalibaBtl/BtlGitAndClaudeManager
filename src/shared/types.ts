@@ -30,6 +30,8 @@ export interface RepoSummary {
   conflicts: number;
   /** A multi-step git operation that was started and not finished. */
   operation: GitOperation | null;
+  /** When HEAD is detached: the branch checked out before, if git remembers one. */
+  previousBranch?: string | null;
 }
 
 /** Git operations that leave state in `.git` until continued or aborted. */
@@ -167,6 +169,11 @@ export type TerminalAction =
   | { action: 'gh-login' }
   | { action: 'gh-setup-git' }
   | { action: 'operation'; repo: string; op: GitOperation; step: 'continue' | 'abort' }
+  | { action: 'reset'; repo: string; sha: string }
+  | { action: 'revert'; repo: string; sha: string }
+  | { action: 'checkout'; repo: string; sha: string }
+  | { action: 'switch-back'; repo: string }
+  | { action: 'branch-here'; repo: string; name: string }
   | { action: 'resume'; session: ClaudeSession }
   | { action: 'claude'; dir: string }
   | { action: 'reword'; repo: string; sha: string; message: string }

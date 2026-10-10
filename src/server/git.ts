@@ -71,7 +71,46 @@ export async function summary(repo: string): Promise<RepoSummary> {
     detectOperation(repo),
   ]);
   const { entries, ...rest } = parsePorcelainV2(out, repo);
-  return { ...rest, operation };
+  const previousBranch = rest.branch === null ? await previousBranchName(repo) : undefined;
+  return { ...rest, operation, previousBranch };
+}
+
+/** Branch checked out before the current HEAD (`@{-1}`), or `null` if that was not a branch. */
+export async function previousBranchName(repo: string): Promise<string | null> {
+  const name = (await git(repo, ['rev-parse', '--abbrev-ref', '@{-1}']).catch(() => '')).trim();
+  return name && name !== '@{-1}' ? name : null;
+}
+
+/** Number of commits reachable from `to` but not from `from`. */
+export async function countRange(repo: string, from: string, to: string): Promise<number> {
+  const out = await git(repo, ['rev-list', '--count', `${from}..${to}`]);
+  return Number(out.trim()) || 0;
+}
+
+/** Whether `ancestor` is reachable from `descendant`. */
+export async function isAncestor(
+  repo: string,
+  ancestor: string,
+  descendant: string,
+): Promise<boolean> {
+  try {
+    await git(repo, ['merge-base', '--is-ancestor', ancestor, descendant]);
+    return true;
+  } catch (e) {
+    if (e instanceof GitError && e.code === 1) return false;
+    throw e;
+  }
+}
+
+/** Number of parents of a commit; 2+ means a merge commit. */
+export async function parentCount(repo: string, sha: string): Promise<number> {
+  const out = await git(repo, ['rev-list', '--parents', '-n', '1', sha]);
+  return Math.max(0, out.trim().split(/\s+/).length - 1);
+}
+
+/** Creates a lightweight tag; used as a safety net before history-rewriting commands. */
+export function createTag(repo: string, name: string, sha: string): Promise<string> {
+  return git(repo, ['tag', name, sha]);
 }
 
 /**

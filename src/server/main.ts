@@ -309,6 +309,56 @@ class App {
       case 'claude':
         if (!existsSync(run.dir)) throw new Error('folder does not exist');
         return [cd(run.dir), 'claude'];
+      case 'reset': {
+        this.assertRepo(run.repo);
+        const head = await gitOps.headSha(run.repo);
+        if (!head || !(await gitOps.isAncestor(run.repo, run.sha, head))) {
+          throw new Error('target must be an ancestor of HEAD');
+        }
+        if ((await gitOps.summary(run.repo)).dirtyCount > 0) {
+          throw new Error('working tree has changes; commit or stash them first');
+        }
+        // Everything between the target and HEAD disappears from the branch, so none
+        // of it may be on the upstream already. A backup tag keeps the commits reachable.
+        const dropping = await gitOps.countRange(run.repo, run.sha, head);
+        const unpushed = (await gitOps.unpushedShas(run.repo))?.size ?? Number.POSITIVE_INFINITY;
+        if (dropping > unpushed) throw new Error('some of the commits to drop are already pushed');
+        const tag = `bgcm/backup-${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}`;
+        await gitOps.createTag(run.repo, tag, head);
+        this.broadcast({
+          type: 'notice',
+          level: 'info',
+          text: `Backup tag ${tag} points at ${head.slice(0, 7)}`,
+        });
+        return [cd(run.repo), `git reset --hard ${shellQuote(run.sha)}`];
+      }
+      case 'revert': {
+        this.assertRepo(run.repo);
+        if ((await gitOps.parentCount(run.repo, run.sha)) > 1) {
+          throw new Error('reverting a merge commit needs -m; do it in the terminal');
+        }
+        return [cd(run.repo), `git revert ${shellQuote(run.sha)}`];
+      }
+      case 'checkout': {
+        this.assertRepo(run.repo);
+        if ((await gitOps.summary(run.repo)).dirtyCount > 0) {
+          throw new Error('working tree has changes; commit or stash them first');
+        }
+        return [cd(run.repo), `git switch --detach ${shellQuote(run.sha)}`];
+      }
+      case 'switch-back': {
+        this.assertRepo(run.repo);
+        const prev = await gitOps.previousBranchName(run.repo);
+        if (!prev) throw new Error('git does not remember a previous branch; use the terminal');
+        return [cd(run.repo), `git switch ${shellQuote(prev)}`];
+      }
+      case 'branch-here': {
+        this.assertRepo(run.repo);
+        if (!/^[\w./-]+$/.test(run.name) || run.name.endsWith('/')) {
+          throw new Error('invalid branch name');
+        }
+        return [cd(run.repo), `git switch -c ${shellQuote(run.name)}`];
+      }
       case 'reword': {
         this.assertRepo(run.repo);
         if (run.message.trim() === '') throw new Error('commit message is empty');
