@@ -67,6 +67,8 @@ a pty** per connected page. Contracts between them are in
   (`version: 1`). This is a **public contract** for external tools; bump
   `version` on incompatible changes and keep `validatePrepared` strict. The
   directory is excluded via `.git/info/exclude`, never `.gitignore`.
+  `claude/commands/prepare-commits.md` is the Claude Code command that writes
+  these files; when the schema changes, change that file in the same commit.
 
 ### Web (`src/web/`)
 

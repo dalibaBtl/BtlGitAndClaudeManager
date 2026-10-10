@@ -99,6 +99,21 @@ including Claude Code, can queue commits by writing such a file:
 
 An empty `files` list means "stage everything".
 
+### Letting Claude Code prepare commits
+
+`claude/commands/prepare-commits.md` is a Claude Code slash command that
+splits uncommitted work into logical commits and writes the JSON files above
+instead of committing. Install it per user:
+
+```bash
+mkdir -p ~/.claude/commands
+cp claude/commands/prepare-commits.md ~/.claude/commands/
+```
+
+Then, in any repo, `/prepare-commits` (optionally with a hint such as
+`/prepare-commits "one commit"`) fills the queue, and you send each commit to
+the terminal from bgcm.
+
 ## Development
 
 ```bash
