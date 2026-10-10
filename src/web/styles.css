@@ -411,6 +411,15 @@ select.mode {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.queue-item.warn {
+  border-left-color: var(--dirty);
+}
+.queue-warning {
+  grid-column: 1;
+  color: var(--dirty);
+  font-size: 11px;
+  white-space: normal;
+}
 .queue-meta {
   grid-column: 1;
   color: var(--fg-dim);

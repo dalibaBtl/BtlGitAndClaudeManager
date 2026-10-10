@@ -1,6 +1,7 @@
 import type { PreparedCommit } from '../../shared/types.js';
 import { api, socket } from '../api.js';
-import { checkedFiles, guard, notify, prepared } from '../state.js';
+import { queueWarnings } from '../queue-warnings.js';
+import { checkedFiles, guard, notify, prepared, repoFiles } from '../state.js';
 import { askConfirm, askText } from './Dialogs.jsx';
 
 /**
@@ -13,6 +14,9 @@ import { askConfirm, askText } from './Dialogs.jsx';
 export function PreparedQueue({ repo }: { repo: string }) {
   const items = prepared.value;
   const picked = checkedFiles.value;
+  const changed = new Set(
+    repoFiles.value.filter((f) => f.status && f.status.kind !== 'ignored').map((f) => f.path),
+  );
 
   const prepare = () =>
     guard(async () => {
@@ -41,41 +45,58 @@ export function PreparedQueue({ repo }: { repo: string }) {
           Prepare commit{picked.size > 0 ? ` (${picked.size})` : ''}
         </button>
       </div>
-      {items.map((it) => (
-        <div class="queue-item" key={it.id} title={it.message}>
-          <div class="queue-msg">{firstLine(it.message)}</div>
-          <div class="queue-meta">
-            {it.files.length === 0 ? 'all changes' : `${it.files.length} file(s)`} · {it.createdBy}
+      {items.map((it) => {
+        const warnings = queueWarnings(it, items, changed);
+        return (
+          <div
+            class={`queue-item ${warnings.length > 0 ? 'warn' : ''}`}
+            key={it.id}
+            title={it.message}
+          >
+            <div class="queue-msg">{firstLine(it.message)}</div>
+            <div class="queue-meta">
+              {it.files.length === 0 ? 'all changes' : `${it.files.length} file(s)`} ·{' '}
+              {it.createdBy}
+            </div>
+            {warnings.map((w) => (
+              <div class="queue-warning" key={w}>
+                ⚠ {w}
+              </div>
+            ))}
+            <div class="queue-actions">
+              <button
+                class="primary"
+                onClick={() =>
+                  socket.send({ type: 'term-run', run: { action: 'commit', repo, id: it.id } })
+                }
+              >
+                Commit
+              </button>
+              <button
+                onClick={() =>
+                  guard(async () => {
+                    if (
+                      !(await askConfirm(
+                        'Discard prepared commit',
+                        firstLine(it.message),
+                        'Discard',
+                      ))
+                    )
+                      return;
+                    const r = await api.del<{ items: PreparedCommit[] }>('/api/prepared', {
+                      repo,
+                      id: it.id,
+                    });
+                    prepared.value = r.items;
+                  })
+                }
+              >
+                Discard
+              </button>
+            </div>
           </div>
-          <div class="queue-actions">
-            <button
-              class="primary"
-              onClick={() =>
-                socket.send({ type: 'term-run', run: { action: 'commit', repo, id: it.id } })
-              }
-            >
-              Commit
-            </button>
-            <button
-              onClick={() =>
-                guard(async () => {
-                  if (
-                    !(await askConfirm('Discard prepared commit', firstLine(it.message), 'Discard'))
-                  )
-                    return;
-                  const r = await api.del<{ items: PreparedCommit[] }>('/api/prepared', {
-                    repo,
-                    id: it.id,
-                  });
-                  prepared.value = r.items;
-                })
-              }
-            >
-              Discard
-            </button>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
