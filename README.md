@@ -13,6 +13,11 @@ you review and send to an embedded terminal.
 +--------------+--------------------------------------+----------------+
 ```
 
+**Status:** early and opinionated. It was built around one developer's
+workflow (sway on Linux, Claude Code, GitHub) and is used daily there; Windows
+support is implemented but less exercised. Issues and pull requests are
+welcome. Licensed under [MIT](LICENSE).
+
 ## Requirements
 
 - Node.js 20 or newer

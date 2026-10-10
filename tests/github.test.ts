@@ -19,11 +19,11 @@ describe('parseAuthStatus', () => {
   it('reads the account from gh auth status output', () => {
     const out = [
       'github.com',
-      '  ✓ Logged in to github.com account dalibaBtl (keyring)',
+      '  ✓ Logged in to github.com account octocat (keyring)',
       '  - Active account: true',
       '  - Git operations protocol: https',
     ].join('\n');
-    expect(parseAuthStatus(out, 0)).toEqual({ loggedIn: true, user: 'dalibaBtl' });
+    expect(parseAuthStatus(out, 0)).toEqual({ loggedIn: true, user: 'octocat' });
   });
 
   it('treats a non-zero exit as signed out even if text mentions an account', () => {
