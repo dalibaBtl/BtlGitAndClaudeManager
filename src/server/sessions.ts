@@ -10,6 +10,11 @@ export function claudeProjectsDir(): string {
 
 /** Bytes read from the head of a transcript when looking for `cwd` and a label. */
 const HEAD_BYTES = 256 * 1024;
+/**
+ * Bytes read from the tail. Claude Code re-emits the user's custom title
+ * (`/rename`, Ctrl+R) every few turns, so the latest one is near the end.
+ */
+const TAIL_BYTES = 256 * 1024;
 
 interface CacheEntry {
   mtimeMs: number;
@@ -73,38 +78,55 @@ export class SessionIndex {
 }
 
 /**
- * Reads the first `HEAD_BYTES` of a transcript and extracts id, cwd and a label.
- * Returns `null` when no record carries a `cwd` (e.g. an empty or foreign file).
+ * Reads the head of a transcript (id, cwd, first prompt) and, for files larger
+ * than the head window, its tail (latest custom title). Returns `null` when no
+ * record carries a `cwd` (e.g. an empty or foreign file).
  */
 export async function readSessionHead(
   file: string,
   mtimeMs: number,
 ): Promise<ClaudeSession | null> {
   const fh = await open(file, 'r');
-  let text: string;
+  let head: string;
+  let tail: string | undefined;
   try {
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const { bytesRead } = await fh.read(buf, 0, HEAD_BYTES, 0);
-    text = buf.subarray(0, bytesRead).toString('utf8');
+    const { size } = await fh.stat();
+    const headBuf = Buffer.alloc(Math.min(HEAD_BYTES, size));
+    const { bytesRead } = await fh.read(headBuf, 0, headBuf.length, 0);
+    head = headBuf.subarray(0, bytesRead).toString('utf8');
+    if (size > HEAD_BYTES) {
+      const start = Math.max(HEAD_BYTES, size - TAIL_BYTES);
+      const tailBuf = Buffer.alloc(size - start);
+      const r = await fh.read(tailBuf, 0, tailBuf.length, start);
+      // Drop the partial first line; it may be cut mid-record.
+      tail = tailBuf.subarray(0, r.bytesRead).toString('utf8');
+      tail = tail.slice(tail.indexOf('\n') + 1);
+    }
   } finally {
     await fh.close();
   }
-  return parseSessionHead(text, file, mtimeMs);
+  return parseSessionHead(head, file, mtimeMs, tail);
 }
 
 /**
  * Pure part of session parsing, separated for tests. Tolerates a truncated last
- * line, which is the normal state of a transcript still being written.
+ * line, which is the normal state of a transcript still being written. The
+ * label is, in order of preference: the user's custom title (latest wins),
+ * Claude Code's stored summary, the first user turn with text.
  */
 export function parseSessionHead(
   text: string,
   file: string,
   mtimeMs: number,
+  tail?: string,
 ): ClaudeSession | null {
   let cwd: string | null = null;
   let id: string | null = null;
   let summary: string | null = null;
-  let firstUser: string | null = null;
+  let customTitle: string | null = null;
+  let aiTitle: string | null = null;
+  let firstText: string | null = null;
+  let sawImage = false;
   for (const line of text.split('\n')) {
     if (!line) continue;
     let rec: Record<string, unknown>;
@@ -118,11 +140,34 @@ export function parseSessionHead(
     if (summary === null && rec.type === 'summary' && typeof rec.summary === 'string') {
       summary = rec.summary;
     }
-    if (firstUser === null && rec.type === 'user') firstUser = extractUserText(rec) || null;
-    if (cwd && id && summary) break;
+    if (rec.type === 'custom-title' && typeof rec.customTitle === 'string') {
+      customTitle = rec.customTitle;
+    }
+    if (rec.type === 'ai-title' && typeof rec.aiTitle === 'string') aiTitle = rec.aiTitle;
+    // The first user turn may be an image or a bare slash command; keep looking
+    // for the first turn with real text so the label says what the session was about.
+    if (firstText === null && rec.type === 'user') {
+      const u = extractUserText(rec);
+      if (u.image) sawImage = true;
+      if (u.text) firstText = u.text;
+    }
   }
   if (!cwd) return null;
-  const label = (summary ?? firstUser ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (tail) {
+    const latest = latestTitles(tail);
+    customTitle = latest.custom ?? customTitle;
+    aiTitle = latest.ai ?? aiTitle;
+  }
+  const title = (customTitle ?? aiTitle)?.replace(/\s+/g, ' ').trim();
+  const body = (summary ?? firstText ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const fallback = body
+    ? sawImage && !summary
+      ? `(image) ${body}`
+      : body
+    : sawImage
+      ? '(image)'
+      : '';
+  const label = title || fallback;
   return {
     id: id ?? path.basename(file, '.jsonl'),
     cwd,
@@ -132,23 +177,58 @@ export function parseSessionHead(
   };
 }
 
-/** Pulls plain text out of a `user` record, whose content is either a string or content blocks. */
-function extractUserText(rec: Record<string, unknown>): string | null {
+/**
+ * Latest `custom-title` (user's rename) and `ai-title` (generated) records in
+ * a chunk of transcript, scanning from the end. Both are re-emitted every few
+ * turns by Claude Code, so the last occurrence is the current one.
+ */
+function latestTitles(chunk: string): { custom: string | null; ai: string | null } {
+  const out = { custom: null as string | null, ai: null as string | null };
+  const lines = chunk.split('\n');
+  for (let i = lines.length - 1; i >= 0 && (out.custom === null || out.ai === null); i--) {
+    const line = lines[i];
+    if (!line || !(line.includes('"custom-title"') || line.includes('"ai-title"'))) continue;
+    try {
+      const rec = JSON.parse(line) as { type?: string; customTitle?: string; aiTitle?: string };
+      if (
+        out.custom === null &&
+        rec.type === 'custom-title' &&
+        typeof rec.customTitle === 'string'
+      ) {
+        out.custom = rec.customTitle;
+      }
+      if (out.ai === null && rec.type === 'ai-title' && typeof rec.aiTitle === 'string') {
+        out.ai = rec.aiTitle;
+      }
+    } catch {
+      // truncated last line of a live transcript
+    }
+  }
+  return out;
+}
+
+/**
+ * Pulls plain text out of a `user` record, whose content is either a string
+ * or content blocks, and notes whether it carried an image. Tool results are
+ * `user` records too and are skipped, as they are not something the user typed.
+ */
+function extractUserText(rec: Record<string, unknown>): { text: string | null; image: boolean } {
   const msg = rec.message as { content?: unknown } | undefined;
   const content = msg?.content;
-  if (typeof content === 'string') return stripSystemTags(content);
+  if (typeof content === 'string') return { text: stripSystemTags(content) || null, image: false };
+  let image = false;
   if (Array.isArray(content)) {
     for (const block of content) {
-      if (block && typeof block === 'object' && (block as { type?: string }).type === 'text') {
-        const t = (block as { text?: string }).text;
-        if (typeof t === 'string') {
-          const cleaned = stripSystemTags(t);
-          if (cleaned) return cleaned;
-        }
+      if (!block || typeof block !== 'object') continue;
+      const b = block as { type?: string; text?: string };
+      if (b.type === 'image') image = true;
+      if (b.type === 'text' && typeof b.text === 'string') {
+        const cleaned = stripSystemTags(b.text);
+        if (cleaned) return { text: cleaned, image };
       }
     }
   }
-  return null;
+  return { text: null, image };
 }
 
 /**

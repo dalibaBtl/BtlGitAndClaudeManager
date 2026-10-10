@@ -53,6 +53,64 @@ describe('parseSessionHead', () => {
     expect(parseSessionHead(text, '/x/f.jsonl', 1)?.label).toBe('/init');
   });
 
+  it('skips an image-only first turn and labels from the next text turn', () => {
+    const text = [
+      JSON.stringify({
+        type: 'user',
+        cwd: '/p',
+        message: { content: [{ type: 'image', source: {} }] },
+      }),
+      JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'tool_result', content: 'ignored' }] },
+      }),
+      JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'text', text: 'what is this linux image?' }] },
+      }),
+    ].join('\n');
+    expect(parseSessionHead(text, '/x/f.jsonl', 1)?.label).toBe(
+      '(image) what is this linux image?',
+    );
+    const imageOnly = JSON.stringify({
+      type: 'user',
+      cwd: '/p',
+      message: { content: [{ type: 'image', source: {} }] },
+    });
+    expect(parseSessionHead(imageOnly, '/x/f.jsonl', 1)?.label).toBe('(image)');
+  });
+
+  it('prefers the custom title, taking the latest one from the tail', () => {
+    const head = [
+      JSON.stringify({ type: 'custom-title', customTitle: 'old name', sessionId: 'f' }),
+      JSON.stringify({ type: 'summary', summary: 'A summary' }),
+      JSON.stringify({ type: 'user', cwd: '/p', message: { content: 'first prompt' } }),
+    ].join('\n');
+    expect(parseSessionHead(head, '/x/f.jsonl', 1)?.label).toBe('old name');
+    const tail = [
+      JSON.stringify({ type: 'assistant' }),
+      JSON.stringify({ type: 'custom-title', customTitle: 'linux image', sessionId: 'f' }),
+      JSON.stringify({ type: 'assistant' }),
+      '{"type":"custom-title","customTitle":"trunc',
+    ].join('\n');
+    expect(parseSessionHead(head, '/x/f.jsonl', 1, tail)?.label).toBe('linux image');
+  });
+
+  it('uses the generated ai-title when there is no custom title', () => {
+    const head = [
+      JSON.stringify({ type: 'user', cwd: '/p', message: { content: 'first prompt' } }),
+      JSON.stringify({ type: 'ai-title', aiTitle: 'Old generated', sessionId: 'f' }),
+    ].join('\n');
+    expect(parseSessionHead(head, '/x/f.jsonl', 1)?.label).toBe('Old generated');
+    const tail = [
+      JSON.stringify({ type: 'ai-title', aiTitle: 'Sway background', sessionId: 'f' }),
+      JSON.stringify({ type: 'assistant' }),
+    ].join('\n');
+    expect(parseSessionHead(head, '/x/f.jsonl', 1, tail)?.label).toBe('Sway background');
+    const renamed = tail + '\n' + JSON.stringify({ type: 'custom-title', customTitle: 'mine' });
+    expect(parseSessionHead(head, '/x/f.jsonl', 1, renamed)?.label).toBe('mine');
+  });
+
   it('returns null when no record carries a cwd', () => {
     expect(parseSessionHead('{"type":"mode"}\n', '/x/f.jsonl', 1)).toBeNull();
   });
