@@ -1,5 +1,4 @@
 import { watch, type FSWatcher } from 'node:fs';
-import path from 'node:path';
 
 /**
  * Watches a single repo for changes and fires a debounced callback.
@@ -48,17 +47,18 @@ export class RepoWatcher {
   }
 }
 
-/** Events inside `.git` that do not change what the UI shows. */
-function isNoise(rel: string): boolean {
+/**
+ * Events inside `.git` that do not change what the UI shows. Only object
+ * writes, reflogs, hooks, `info/` and lock files are ignored; everything else
+ * (`index`, `HEAD`, loose refs, `packed-refs` after a push or gc, `FETCH_HEAD`,
+ * `MERGE_HEAD`, …) can change status, ahead/behind or an in-progress operation.
+ */
+export function isNoise(rel: string): boolean {
   const parts = rel.split(/[\\/]/);
   if (parts[0] !== '.git') return false;
-  const inner = parts.slice(1).join('/');
-  if (inner === 'index' || inner === 'HEAD' || inner.startsWith('refs/')) return false;
-  // Lock files and object writes: ignore. `index.lock` disappearing is followed by an `index` write.
-  return true;
-}
-
-/** Whether `file` is inside the repo's `.bgcm/prepared` directory. */
-export function isPreparedFile(repo: string, abs: string): boolean {
-  return abs.startsWith(path.join(repo, '.bgcm', 'prepared'));
+  const inner = parts.slice(1);
+  const top = inner[0] ?? '';
+  if (top === 'objects' || top === 'logs' || top === 'hooks' || top === 'info') return true;
+  // `index.lock` vanishing is always followed by an `index` write, so locks carry no signal.
+  return (inner[inner.length - 1] ?? '').endsWith('.lock');
 }
