@@ -19,7 +19,7 @@ import {
   selectedRepo,
 } from '../state.js';
 import { openMenu, type MenuItem } from './ContextMenu.jsx';
-import { askConfirm } from './Dialogs.jsx';
+import { askConfirm, askText } from './Dialogs.jsx';
 import { relativeTime } from './FolderTree.jsx';
 import { PreparedQueue } from './PreparedQueue.jsx';
 
@@ -188,13 +188,23 @@ function CommitColumn({ repo, commit }: { repo: string; commit: CommitInfo }) {
     commit.files.map((f) => ({ path: f.path, letter: f.status, ignored: false })),
   );
   const active = selectedCommit.value === commit.sha;
+  const when = new Date(commit.time * 1000).toLocaleString();
+  const where = commit.pushed ? 'pushed' : 'not pushed';
   return (
-    <div class={`column commit ${active ? 'active' : ''}`}>
+    <div class={`column commit ${active ? 'active' : ''} ${commit.pushed ? '' : 'unpushed'}`}>
       <div
         class="column-head"
-        title={`${commit.sha}\n${commit.author}\n${new Date(commit.time * 1000).toLocaleString()}`}
+        title={`${commit.sha}\n${commit.author}\n${when}\n${where}\n\n${commit.message}`}
+        onContextMenu={(e) => openMenu(e, commitMenu(repo, commit))}
       >
-        <b>{commit.subject}</b>
+        <b>
+          {!commit.pushed && (
+            <i class="unpushed-mark" title="Not pushed">
+              ↑{' '}
+            </i>
+          )}
+          {commit.subject}
+        </b>
         <span class="meta">
           {commit.shortSha} · {commit.author} · {relativeTime(commit.time * 1000)}
         </span>
@@ -284,6 +294,45 @@ function FileRow({
       )}
     </>
   );
+}
+
+/**
+ * Context menu of a commit column. Reword is offered only where `--amend` is
+ * safe: the commit is HEAD and the upstream does not have it yet. The server
+ * re-checks both before typing anything into the terminal.
+ */
+function commitMenu(repo: string, commit: CommitInfo): MenuItem[] {
+  const blocker = !commit.isHead
+    ? 'only the latest commit can be reworded'
+    : commit.pushed
+      ? 'already pushed'
+      : null;
+  return [
+    {
+      label: blocker ? `Reword… (${blocker})` : 'Reword…',
+      disabled: blocker !== null,
+      onClick: () =>
+        guard(async () => {
+          const message = await askText('Reword commit', `New message for ${commit.shortSha}`, {
+            multiline: true,
+            initial: commit.message,
+            okLabel: 'Amend',
+          });
+          if (!message || message.trim() === commit.message.trim()) return;
+          socket.send({
+            type: 'term-run',
+            run: { action: 'reword', repo, sha: commit.sha, message },
+          });
+        }),
+    },
+    {
+      label: 'Copy SHA',
+      onClick: () => {
+        void navigator.clipboard.writeText(commit.sha);
+        notify('info', 'Copied');
+      },
+    },
+  ];
 }
 
 function fileMenu(repo: string, node: TreeNode, sha: string | null): MenuItem[] {

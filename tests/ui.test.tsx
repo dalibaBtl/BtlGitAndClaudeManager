@@ -207,6 +207,9 @@ describe('RepoTree', () => {
         author: 'Jan',
         time: 1_700_000_000,
         subject: 'initial',
+        message: 'initial',
+        isHead: true,
+        pushed: false,
         files: [{ status: 'A', path: 'src/a.ts' }],
       },
     ];

@@ -143,27 +143,36 @@ export function diffCommit(
 export async function log(repo: string, limit: number): Promise<CommitInfo[]> {
   let out: string;
   try {
+    // Record separator 0x1e, field separator 0x1f, and 0x1d closes the free-form body
+    // so the name-status lines that follow can be split off safely.
     out = await git(repo, [
       'log',
       `-n${limit}`,
       '--name-status',
-      '--format=%x1e%H%x1f%h%x1f%an%x1f%at%x1f%s',
+      '--format=%x1e%H%x1f%h%x1f%an%x1f%at%x1f%s%x1f%B%x1d',
     ]);
   } catch (e) {
     if (e instanceof GitError && /does not have any commits/.test(e.stderr)) return [];
     throw e;
   }
+  const [head, unpushed] = await Promise.all([headSha(repo), unpushedShas(repo)]);
   return out
     .split('\x1e')
     .filter((rec) => rec.trim() !== '')
-    .map(parseLogRecord);
+    .map((rec) => parseLogRecord(rec, head, unpushed));
 }
 
-function parseLogRecord(rec: string): CommitInfo {
-  const [head, ...rest] = rec.split('\n');
-  const [sha = '', shortSha = '', author = '', time = '0', subject = ''] = (head ?? '').split(
-    '\x1f',
-  );
+/** Parses one `log` record; exported for tests. */
+export function parseLogRecord(
+  rec: string,
+  head: string | null,
+  unpushed: Set<string> | null,
+): CommitInfo {
+  const end = rec.indexOf('\x1d');
+  const header = end < 0 ? rec : rec.slice(0, end);
+  const rest = end < 0 ? [] : rec.slice(end + 1).split('\n');
+  const [sha = '', shortSha = '', author = '', time = '0', subject = '', body = ''] =
+    header.split('\x1f');
   const files: CommitInfo['files'] = [];
   for (const line of rest) {
     if (!line.trim()) continue;
@@ -175,7 +184,53 @@ function parseLogRecord(rec: string): CommitInfo {
       files.push({ status: st, path: parts[1] ?? '' });
     }
   }
-  return { sha, shortSha, author, time: Number(time), subject, files };
+  return {
+    sha,
+    shortSha,
+    author,
+    time: Number(time),
+    subject,
+    message: body.replace(/\n+$/, ''),
+    isHead: sha === head,
+    // No upstream: nothing is pushed anywhere, so every commit counts as local.
+    pushed: unpushed !== null && !unpushed.has(sha),
+    files,
+  };
+}
+
+/** Current HEAD commit, or `null` in an empty repo. */
+export async function headSha(repo: string): Promise<string | null> {
+  return git(repo, ['rev-parse', '--verify', '-q', 'HEAD'])
+    .then((s) => s.trim() || null)
+    .catch(() => null);
+}
+
+/**
+ * Commits on HEAD that the upstream does not have, or `null` when the branch
+ * has no upstream.
+ */
+export async function unpushedShas(repo: string): Promise<Set<string> | null> {
+  try {
+    const out = await git(repo, ['rev-list', '@{upstream}..HEAD']);
+    return new Set(out.split('\n').filter(Boolean));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether `sha` is already contained in the upstream branch. Exit 1 means
+ * "not an ancestor"; exit 128 means there is no upstream, which also counts
+ * as not pushed.
+ */
+export async function isPushed(repo: string, sha: string): Promise<boolean> {
+  try {
+    await git(repo, ['merge-base', '--is-ancestor', sha, '@{upstream}']);
+    return true;
+  } catch (e) {
+    if (e instanceof GitError && (e.code === 1 || e.code === 128)) return false;
+    throw e;
+  }
 }
 
 /** Stashes the given paths (or everything when empty), including untracked files. */

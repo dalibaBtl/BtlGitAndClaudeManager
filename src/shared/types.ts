@@ -74,6 +74,12 @@ export interface CommitInfo {
   /** Epoch seconds. */
   time: number;
   subject: string;
+  /** Full commit message including the subject line. */
+  message: string;
+  /** Whether this is the current HEAD, the only commit `--amend` can rewrite. */
+  isHead: boolean;
+  /** Reachable from the upstream branch. `false` when there is no upstream. */
+  pushed: boolean;
   /** Files touched, with their one-letter name-status. */
   files: { status: string; path: string; origPath?: string }[];
 }
@@ -151,6 +157,7 @@ export type TerminalAction =
   | { action: 'clone'; dir: string; url: string }
   | { action: 'resume'; session: ClaudeSession }
   | { action: 'claude'; dir: string }
+  | { action: 'reword'; repo: string; sha: string; message: string }
   | { action: 'commit'; repo: string; id: string };
 
 /** Messages sent from client to server over the WebSocket. */

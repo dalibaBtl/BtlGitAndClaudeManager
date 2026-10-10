@@ -360,6 +360,13 @@ select.mode {
 .column.active {
   background: rgba(79, 140, 255, 0.05);
 }
+.column.unpushed .column-head {
+  border-top: 2px solid var(--ahead);
+}
+.unpushed-mark {
+  font-style: normal;
+  color: var(--ahead);
+}
 .column-head {
   padding: 6px 8px;
   border-bottom: 1px solid var(--border);

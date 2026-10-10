@@ -271,6 +271,24 @@ class App {
       case 'claude':
         if (!existsSync(run.dir)) throw new Error('folder does not exist');
         return [cd(run.dir), 'claude'];
+      case 'reword': {
+        this.assertRepo(run.repo);
+        if (run.message.trim() === '') throw new Error('commit message is empty');
+        // `--amend` can only rewrite HEAD, and rewriting a published commit would
+        // diverge from the upstream, so both are refused here rather than in git.
+        if ((await gitOps.headSha(run.repo)) !== run.sha) {
+          throw new Error('only the latest commit can be reworded');
+        }
+        if (await gitOps.isPushed(run.repo, run.sha)) {
+          throw new Error('commit is already pushed; rewording would diverge from upstream');
+        }
+        const dir = path.join(cacheDir(), 'messages');
+        await mkdir(dir, { recursive: true });
+        const msgFile = path.join(dir, `reword-${run.sha.slice(0, 12)}.txt`);
+        await writeFile(msgFile, run.message.endsWith('\n') ? run.message : run.message + '\n');
+        // `--only` with no paths amends the message alone, leaving staged changes staged.
+        return [cd(run.repo), `git commit --amend --only -F ${shellQuote(msgFile)}`];
+      }
       case 'commit': {
         this.assertRepo(run.repo);
         const item = (await listPrepared(run.repo)).find((p) => p.id === run.id);
