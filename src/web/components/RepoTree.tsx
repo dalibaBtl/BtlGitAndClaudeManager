@@ -21,7 +21,7 @@ import {
 import { openMenu, type MenuItem } from './ContextMenu.jsx';
 import { askChoice, askConfirm, askText } from './Dialogs.jsx';
 import { relativeTime } from './FolderTree.jsx';
-import { githubStatus } from './GitHubChip.jsx';
+import { GitHubChip, githubStatus } from './GitHubChip.jsx';
 import { PreparedQueue } from './PreparedQueue.jsx';
 
 /** A node of the file tree built from flat repo-relative paths. */
@@ -85,6 +85,7 @@ export function RepoTree() {
       <section class="pane repo-pane">
         <header>
           <span class="title">Repository</span>
+          <GitHubChip />
         </header>
         <p class="empty">Select a repository on the left.</p>
       </section>
@@ -157,6 +158,7 @@ export function RepoTree() {
         >
           Stash all
         </button>
+        <GitHubChip />
       </header>
       {repoStatus.value?.operation && (
         <OperationBanner

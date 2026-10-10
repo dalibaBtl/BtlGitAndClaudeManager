@@ -21,7 +21,7 @@ import {
 } from '../state.js';
 import { openMenu, type MenuItem } from './ContextMenu.jsx';
 import { askConfirm, askFolder, askPick, askText } from './Dialogs.jsx';
-import { GitHubChip, githubStatus } from './GitHubChip.jsx';
+import { githubStatus } from './GitHubChip.jsx';
 
 const expanded = signal<Set<string>>(new Set());
 
@@ -105,7 +105,6 @@ export function FolderTree() {
         <button class="primary" title="Add a folder to scan" onClick={addRoot}>
           + Add
         </button>
-        <GitHubChip />
       </header>
       <div class="tree">
         {roots.length === 0 && (
