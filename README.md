@@ -4,13 +4,13 @@ Desktop tool for Linux and Windows that shows all your git repositories in one
 place, finds Claude Code sessions, and keeps a queue of prepared commits that
 you review and send to an embedded terminal.
 
-```
-+--------------+--------------------------------------+----------------+
-| Folder tree  | Working tree | commit | commit | ...  | Diff           |
-| (repos,      |              |        |        |      |                |
-|  sessions)   +--------------------------------------+                |
-|              | Terminal                             |                |
-+--------------+--------------------------------------+----------------+
+```text
+┌──────────────┬───────────────────────────────────────┬──────────────┐
+│ Folder tree  │ Working tree │ commit │ commit │ …    │ Diff         │
+│ (repos,      │                                       │              │
+│  sessions)   ├───────────────────────────────────────┤              │
+│              │ Terminal                              │              │
+└──────────────┴───────────────────────────────────────┴──────────────┘
 ```
 
 **Status:** early and opinionated. It was built around one developer's
