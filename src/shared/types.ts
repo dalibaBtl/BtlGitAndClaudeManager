@@ -174,8 +174,6 @@ export type TerminalAction =
   | { action: 'checkout'; repo: string; sha: string }
   | { action: 'switch-back'; repo: string }
   | { action: 'branch-here'; repo: string; name: string }
-  | { action: 'resume'; session: ClaudeSession }
-  | { action: 'claude'; dir: string }
   | { action: 'reword'; repo: string; sha: string; message: string }
   | { action: 'commit'; repo: string; id: string };
 

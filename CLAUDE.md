@@ -49,10 +49,14 @@ a pty** per connected page. Contracts between them are in
   - _Direct_: reads (`git.ts`), plus stash / ignore+untrack / init, which
     never prompt. Run via `execFile`, output parsed (`shared/porcelain.ts`,
     `shared/diff.ts`).
-  - _Typed into the terminal_: commit, push, pull, clone, `claude --resume`.
-    Built in `App.buildSteps`, chained per shell dialect in `terminal.ts`
-    (`&&` on POSIX/pwsh, `$?` checks on Windows PowerShell 5.1). Anything
-    that can prompt for credentials or open an editor belongs here.
+  - _Typed into the terminal_: commit, push, pull, clone, reset/revert/
+    checkout. Built in `App.buildSteps`, chained per shell dialect in
+    `terminal.ts` (`&&` on POSIX/pwsh, `$?` checks on Windows PowerShell
+    5.1). Anything that can prompt for credentials or open an editor belongs
+    here.
+  - _External terminal_ (`external.ts`): `claude` and `claude --resume`
+    always open the user's own terminal emulator, never the embedded one
+    (browser shortcuts break Claude Code's key bindings).
 - `scanner.ts`: breadth-first, bounded concurrency, stops at `.git`, skips
   `SKIP_DIRS` and dotfolders below the root. `watch.ts`: only the _selected_
   repo is watched (recursive `fs.watch`, debounced, `.git` noise filtered).

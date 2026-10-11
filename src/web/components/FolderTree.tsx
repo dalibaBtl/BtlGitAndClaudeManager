@@ -230,7 +230,7 @@ export function SessionRow({ session, depth }: { session: ClaudeSession; depth: 
       style={{ paddingLeft: `${depth * 14 + 6}px` }}
       title={`${session.id}\n${when}\n${session.file}`}
       onContextMenu={(e) => openMenu(e, sessionMenu(session))}
-      onDblClick={() => socket.send({ type: 'term-run', run: { action: 'resume', session } })}
+      onDblClick={() => resumeExternal(session)}
     >
       <span class="caret blank" />
       <span class="badge">◆</span>
@@ -240,15 +240,20 @@ export function SessionRow({ session, depth }: { session: ClaudeSession; depth: 
   );
 }
 
+/**
+ * Claude always runs in the user's own terminal emulator: the embedded one
+ * lives inside a browser page, which steals shortcuts Claude Code relies on,
+ * and a session deserves a full window next to the app anyway.
+ */
+function resumeExternal(session: ClaudeSession): void {
+  void guard(() => api.post('/api/sessions/resume-external', { id: session.id }));
+}
+
 export function sessionMenu(session: ClaudeSession): MenuItem[] {
   return [
     {
       label: 'Resume in terminal',
-      onClick: () => socket.send({ type: 'term-run', run: { action: 'resume', session } }),
-    },
-    {
-      label: 'Resume in external terminal',
-      onClick: () => guard(() => api.post('/api/sessions/resume-external', { id: session.id })),
+      onClick: () => resumeExternal(session),
     },
     {
       label: 'Open folder in external terminal',
@@ -294,7 +299,7 @@ function folderMenu(node: TreeNode): MenuItem[] {
   }
   items.push({
     label: 'New Claude session here',
-    onClick: () => socket.send({ type: 'term-run', run: { action: 'claude', dir: node.path } }),
+    onClick: () => guard(() => api.post('/api/claude/new-external', { dir: node.path })),
   });
   if (node.isRepo) {
     items.push({

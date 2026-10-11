@@ -33,10 +33,12 @@ unmaintained; `isomorphic-git` is slower than the CLI for status).
    the 4 kB renderer; one bundle, no dev server.
 3. **Git: CLI only.** Reads use `git status --porcelain=v2 -z` and friends
    with bounded parallelism (8 processes) across repos. Operations that may
-   prompt or run long (commit, push, pull, clone, `claude --resume`) are typed
-   into the embedded terminal (node-pty + xterm.js) instead of executed by the
-   server. Stash, ignore/untrack and `git init` run directly because they never
-   prompt.
+   prompt or run long (commit, push, pull, clone) are typed into the embedded
+   terminal (node-pty + xterm.js) instead of executed by the server. Stash,
+   ignore/untrack and `git init` run directly because they never prompt.
+   Claude Code sessions are launched in the user's external terminal
+   emulator: inside a browser page Chromium keeps shortcuts such as Ctrl+W
+   and Ctrl+T, which collide with Claude Code's key bindings.
 4. **Watching: only the selected repo** is watched with a debounced recursive
    `fs.watch`; all other repos are re-summarised once a minute. Sessions are
    indexed by reading the head of each transcript and cached by mtime/size.

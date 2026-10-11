@@ -81,9 +81,13 @@ when installed, otherwise Windows PowerShell.
 - Claude Code sessions are read from `~/.claude/projects` and matched to
   folders by the `cwd` recorded inside each transcript that matches the
   project folder name, so a session follows a checkout that was renamed.
-- Anything that might prompt (commit, push, pull, clone, `claude --resume`) is
-  typed into the embedded terminal instead of run by the server, so SSH
-  passphrases, hooks and signing behave exactly as in your shell.
+- Anything that might prompt (commit, push, pull, clone) is typed into the
+  embedded terminal instead of run by the server, so SSH passphrases, hooks
+  and signing behave exactly as in your shell.
+- Claude Code itself always starts in your own terminal emulator (new session
+  or resume): the embedded terminal sits inside a browser page, which
+  intercepts shortcuts Claude Code uses, and a session deserves a full window
+  next to the app.
 
 ## GitHub
 

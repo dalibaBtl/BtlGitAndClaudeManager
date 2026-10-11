@@ -304,11 +304,6 @@ class App {
         return ['gh auth login --hostname github.com --git-protocol https --web'];
       case 'gh-setup-git':
         return ['gh auth setup-git'];
-      case 'resume':
-        return [cd(run.session.cwd), `claude --resume ${shellQuote(run.session.id)}`];
-      case 'claude':
-        if (!existsSync(run.dir)) throw new Error('folder does not exist');
-        return [cd(run.dir), 'claude'];
       case 'reset': {
         this.assertRepo(run.repo);
         const head = await gitOps.headSha(run.repo);
@@ -683,6 +678,13 @@ async function handleHttp(
       if (!path.isAbsolute(target) || !existsSync(target)) throw new Error('target does not exist');
       if (body.kind === 'terminal') openTerminal(target);
       else openWithDefault(target);
+      sendJson(res, 200, {});
+      return;
+    }
+    case 'POST /api/claude/new-external': {
+      const dir = str(body.dir, 'dir');
+      if (!path.isAbsolute(dir) || !isDirectory(dir)) throw new Error('folder does not exist');
+      openTerminal(dir, ['claude']);
       sendJson(res, 200, {});
       return;
     }
