@@ -96,6 +96,20 @@ describe('parseSessionHead', () => {
     expect(parseSessionHead(head, '/x/f.jsonl', 1, tail)?.label).toBe('linux image');
   });
 
+  it('follows the latest cwd so a moved checkout claims its old sessions', () => {
+    const head = [
+      JSON.stringify({ type: 'user', cwd: '/home/u/dev/Old', message: { content: 'first' } }),
+      JSON.stringify({ type: 'assistant', cwd: '/home/u/dev/Old' }),
+      JSON.stringify({ type: 'user', cwd: '/home/u/dev/New', message: { content: 'resumed' } }),
+    ].join('\n');
+    expect(parseSessionHead(head, '/x/f.jsonl', 1)?.cwd).toBe('/home/u/dev/New');
+    const tail = [
+      JSON.stringify({ type: 'assistant', cwd: '/home/u/dev/Newer' }),
+      '{"type":"user","cwd":"/home/u/dev/Trunc',
+    ].join('\n');
+    expect(parseSessionHead(head, '/x/f.jsonl', 1, tail)?.cwd).toBe('/home/u/dev/Newer');
+  });
+
   it('uses the generated ai-title when there is no custom title', () => {
     const head = [
       JSON.stringify({ type: 'user', cwd: '/p', message: { content: 'first prompt' } }),

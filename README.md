@@ -79,7 +79,8 @@ when installed, otherwise Windows PowerShell.
   and skips dependency/build folders and dotfolders. Dirty counts are
   refreshed every minute, and the selected repo is watched for changes.
 - Claude Code sessions are read from `~/.claude/projects` and matched to
-  folders by the `cwd` recorded inside each transcript.
+  folders by the latest `cwd` recorded inside each transcript, so a session
+  follows a checkout that was renamed or moved.
 - Anything that might prompt (commit, push, pull, clone, `claude --resume`) is
   typed into the embedded terminal instead of run by the server, so SSH
   passphrases, hooks and signing behave exactly as in your shell.

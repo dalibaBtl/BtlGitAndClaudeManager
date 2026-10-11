@@ -8,11 +8,12 @@ export function claudeProjectsDir(): string {
   return path.join(process.env.CLAUDE_CONFIG_DIR ?? path.join(homedir(), '.claude'), 'projects');
 }
 
-/** Bytes read from the head of a transcript when looking for `cwd` and a label. */
+/** Bytes read from the head of a transcript when looking for the id and a label. */
 const HEAD_BYTES = 256 * 1024;
 /**
  * Bytes read from the tail. Claude Code re-emits the user's custom title
- * (`/rename`, Ctrl+R) every few turns, so the latest one is near the end.
+ * (`/rename`, Ctrl+R) every few turns, so the latest one is near the end, and
+ * every record carries the `cwd` the session currently runs in.
  */
 const TAIL_BYTES = 256 * 1024;
 
@@ -27,7 +28,10 @@ interface CacheEntry {
  *
  * The directory name under `~/.claude/projects` is a lossy encoding of the
  * working directory (`/` and `_` both become `-`), so it is never decoded.
- * Instead the `cwd` field of the first record that carries one is used. Results
+ * Instead the `cwd` field of the last record that carries one is used: a
+ * session resumed from a renamed or moved checkout keeps its old `cwd` in the
+ * early records, and the folder it belongs to now is the one it was last run
+ * from. Results
  * are cached per file keyed on mtime and size, so a rescan of hundreds of
  * sessions costs one `stat` each.
  */
@@ -78,9 +82,9 @@ export class SessionIndex {
 }
 
 /**
- * Reads the head of a transcript (id, cwd, first prompt) and, for files larger
- * than the head window, its tail (latest custom title). Returns `null` when no
- * record carries a `cwd` (e.g. an empty or foreign file).
+ * Reads the head of a transcript (id, first prompt) and, for files larger
+ * than the head window, its tail (latest cwd and custom title). Returns `null`
+ * when no record carries a `cwd` (e.g. an empty or foreign file).
  */
 export async function readSessionHead(
   file: string,
@@ -111,8 +115,10 @@ export async function readSessionHead(
 /**
  * Pure part of session parsing, separated for tests. Tolerates a truncated last
  * line, which is the normal state of a transcript still being written. The
- * label is, in order of preference: the user's custom title (latest wins),
- * Claude Code's stored summary, the first user turn with text.
+ * `cwd` is the latest one seen (tail over head), so a session follows the
+ * checkout it was last resumed from. The label is, in order of preference: the
+ * user's custom title (latest wins), Claude Code's stored summary, the first
+ * user turn with text.
  */
 export function parseSessionHead(
   text: string,
@@ -135,7 +141,7 @@ export function parseSessionHead(
     } catch {
       continue;
     }
-    if (cwd === null && typeof rec.cwd === 'string') cwd = rec.cwd;
+    if (typeof rec.cwd === 'string') cwd = rec.cwd;
     if (id === null && typeof rec.sessionId === 'string') id = rec.sessionId;
     if (summary === null && rec.type === 'summary' && typeof rec.summary === 'string') {
       summary = rec.summary;
@@ -154,7 +160,8 @@ export function parseSessionHead(
   }
   if (!cwd) return null;
   if (tail) {
-    const latest = latestTitles(tail);
+    const latest = latestRecords(tail);
+    cwd = latest.cwd ?? cwd;
     customTitle = latest.custom ?? customTitle;
     aiTitle = latest.ai ?? aiTitle;
   }
@@ -177,19 +184,38 @@ export function parseSessionHead(
   };
 }
 
+interface LatestRecords {
+  cwd: string | null;
+  custom: string | null;
+  ai: string | null;
+}
+
 /**
- * Latest `custom-title` (user's rename) and `ai-title` (generated) records in
- * a chunk of transcript, scanning from the end. Both are re-emitted every few
- * turns by Claude Code, so the last occurrence is the current one.
+ * Latest `cwd`, `custom-title` (user's rename) and `ai-title` (generated)
+ * values in a chunk of transcript, scanning from the end. The titles are
+ * re-emitted every few turns by Claude Code and `cwd` sits on every message
+ * record, so the last occurrence of each is the current one.
  */
-function latestTitles(chunk: string): { custom: string | null; ai: string | null } {
-  const out = { custom: null as string | null, ai: null as string | null };
+function latestRecords(chunk: string): LatestRecords {
+  const out: LatestRecords = { cwd: null, custom: null, ai: null };
   const lines = chunk.split('\n');
-  for (let i = lines.length - 1; i >= 0 && (out.custom === null || out.ai === null); i--) {
+  const done = () => out.cwd !== null && out.custom !== null && out.ai !== null;
+  for (let i = lines.length - 1; i >= 0 && !done(); i--) {
     const line = lines[i];
-    if (!line || !(line.includes('"custom-title"') || line.includes('"ai-title"'))) continue;
+    if (
+      !line ||
+      !(line.includes('"cwd"') || line.includes('"custom-title"') || line.includes('"ai-title"'))
+    ) {
+      continue;
+    }
     try {
-      const rec = JSON.parse(line) as { type?: string; customTitle?: string; aiTitle?: string };
+      const rec = JSON.parse(line) as {
+        type?: string;
+        cwd?: string;
+        customTitle?: string;
+        aiTitle?: string;
+      };
+      if (out.cwd === null && typeof rec.cwd === 'string') out.cwd = rec.cwd;
       if (
         out.custom === null &&
         rec.type === 'custom-title' &&
