@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSessionHead } from '../src/server/sessions.js';
+import { encodeProjectDir, parseSessionHead } from '../src/server/sessions.js';
 
 describe('parseSessionHead', () => {
   it('takes cwd and id from records, prefers the stored summary as label', () => {
@@ -96,18 +96,38 @@ describe('parseSessionHead', () => {
     expect(parseSessionHead(head, '/x/f.jsonl', 1, tail)?.label).toBe('linux image');
   });
 
-  it('follows the latest cwd so a moved checkout claims its old sessions', () => {
+  it('picks the cwd whose encoding matches the project folder name', () => {
+    const file = '/home/u/.claude/projects/-home-u-dev-New/f.jsonl';
     const head = [
       JSON.stringify({ type: 'user', cwd: '/home/u/dev/Old', message: { content: 'first' } }),
-      JSON.stringify({ type: 'assistant', cwd: '/home/u/dev/Old' }),
       JSON.stringify({ type: 'user', cwd: '/home/u/dev/New', message: { content: 'resumed' } }),
     ].join('\n');
-    expect(parseSessionHead(head, '/x/f.jsonl', 1)?.cwd).toBe('/home/u/dev/New');
+    expect(parseSessionHead(head, file, 1)?.cwd).toBe('/home/u/dev/New');
     const tail = [
-      JSON.stringify({ type: 'assistant', cwd: '/home/u/dev/Newer' }),
+      JSON.stringify({ type: 'assistant', cwd: '/home/u/dev/New/sub/dir' }),
       '{"type":"user","cwd":"/home/u/dev/Trunc',
     ].join('\n');
-    expect(parseSessionHead(head, '/x/f.jsonl', 1, tail)?.cwd).toBe('/home/u/dev/Newer');
+    expect(parseSessionHead(head, file, 1, tail)?.cwd).toBe('/home/u/dev/New');
+  });
+
+  it('keeps the project when the shell moved into a subfolder or elsewhere', () => {
+    const file = '/home/u/.claude/projects/-home-u-dev/f.jsonl';
+    const head = [
+      JSON.stringify({ type: 'user', cwd: '/home/u/dev', message: { content: 'first' } }),
+      JSON.stringify({ type: 'assistant', cwd: '/home/u/dev/Other.Repo_x' }),
+    ].join('\n');
+    expect(parseSessionHead(head, file, 1)?.cwd).toBe('/home/u/dev');
+  });
+
+  it('falls back to the first cwd when none matches the folder, as for a moved file', () => {
+    const head = JSON.stringify({ type: 'user', cwd: '/p/old', message: { content: 'x' } });
+    expect(parseSessionHead(head, '/x/f.jsonl', 1)?.cwd).toBe('/p/old');
+  });
+
+  it('encodes a cwd like the project folder name', () => {
+    expect(encodeProjectDir('/home/u/dev/Eplan.EplAddin_Bom Editor')).toBe(
+      '-home-u-dev-Eplan-EplAddin-Bom-Editor',
+    );
   });
 
   it('uses the generated ai-title when there is no custom title', () => {

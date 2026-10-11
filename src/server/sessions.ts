@@ -27,11 +27,12 @@ interface CacheEntry {
  * Indexes Claude Code sessions.
  *
  * The directory name under `~/.claude/projects` is a lossy encoding of the
- * working directory (`/` and `_` both become `-`), so it is never decoded.
- * Instead the `cwd` field of the last record that carries one is used: a
- * session resumed from a renamed or moved checkout keeps its old `cwd` in the
- * early records, and the folder it belongs to now is the one it was last run
- * from. Results
+ * working directory (`/`, `.` and `_` all become `-`), so it is never decoded.
+ * Instead the `cwd` fields inside the transcript are used. They record the
+ * shell's directory at each turn, not the project: a `cd` into a subfolder
+ * changes them, and a session resumed from a renamed checkout keeps the old
+ * path in its early records. The one whose encoding matches the directory name
+ * is therefore the project; failing that, the first one. Results
  * are cached per file keyed on mtime and size, so a rescan of hundreds of
  * sessions costs one `stat` each.
  */
@@ -82,7 +83,7 @@ export class SessionIndex {
 }
 
 /**
- * Reads the head of a transcript (id, first prompt) and, for files larger
+ * Reads the head of a transcript (id, cwd, first prompt) and, for files larger
  * than the head window, its tail (latest cwd and custom title). Returns `null`
  * when no record carries a `cwd` (e.g. an empty or foreign file).
  */
@@ -115,10 +116,9 @@ export async function readSessionHead(
 /**
  * Pure part of session parsing, separated for tests. Tolerates a truncated last
  * line, which is the normal state of a transcript still being written. The
- * `cwd` is the latest one seen (tail over head), so a session follows the
- * checkout it was last resumed from. The label is, in order of preference: the
- * user's custom title (latest wins), Claude Code's stored summary, the first
- * user turn with text.
+ * `cwd` is chosen by `pickCwd` from every value seen in the head and the tail.
+ * The label is, in order of preference: the user's custom title (latest wins),
+ * Claude Code's stored summary, the first user turn with text.
  */
 export function parseSessionHead(
   text: string,
@@ -126,7 +126,7 @@ export function parseSessionHead(
   mtimeMs: number,
   tail?: string,
 ): ClaudeSession | null {
-  let cwd: string | null = null;
+  const cwds: string[] = [];
   let id: string | null = null;
   let summary: string | null = null;
   let customTitle: string | null = null;
@@ -141,7 +141,7 @@ export function parseSessionHead(
     } catch {
       continue;
     }
-    if (typeof rec.cwd === 'string') cwd = rec.cwd;
+    if (typeof rec.cwd === 'string') cwds.push(rec.cwd);
     if (id === null && typeof rec.sessionId === 'string') id = rec.sessionId;
     if (summary === null && rec.type === 'summary' && typeof rec.summary === 'string') {
       summary = rec.summary;
@@ -158,13 +158,14 @@ export function parseSessionHead(
       if (u.text) firstText = u.text;
     }
   }
-  if (!cwd) return null;
   if (tail) {
     const latest = latestRecords(tail);
-    cwd = latest.cwd ?? cwd;
+    if (latest.cwd !== null) cwds.push(latest.cwd);
     customTitle = latest.custom ?? customTitle;
     aiTitle = latest.ai ?? aiTitle;
   }
+  const cwd = pickCwd(cwds, path.basename(path.dirname(file)));
+  if (!cwd) return null;
   const title = (customTitle ?? aiTitle)?.replace(/\s+/g, ' ').trim();
   const body = (summary ?? firstText ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
   const fallback = body
@@ -182,6 +183,26 @@ export function parseSessionHead(
     modified: mtimeMs,
     label: label || '(no prompt)',
   };
+}
+
+/**
+ * Encodes a working directory the way Claude Code names the project folder
+ * under `~/.claude/projects`: every character outside `[A-Za-z0-9-]` becomes
+ * `-`. Lossy, which is why it is only ever compared, never reversed.
+ */
+export function encodeProjectDir(cwd: string): string {
+  return cwd.replace(/[^A-Za-z0-9-]/g, '-');
+}
+
+/**
+ * Picks the session's project directory from the `cwd` values seen in its
+ * transcript. The folder name is the ground truth Claude Code derived from the
+ * project; the first `cwd` whose encoding matches it wins. With no match (a
+ * transcript moved by hand and not yet resumed from the new path) the first
+ * value stands, as it did before transcripts were ever moved.
+ */
+export function pickCwd(cwds: readonly string[], projectDirName: string): string | null {
+  return cwds.find((c) => encodeProjectDir(c) === projectDirName) ?? cwds[0] ?? null;
 }
 
 interface LatestRecords {
