@@ -39,7 +39,28 @@ npm run install-desktop      # adds "BTL Git & Claude Manager" to the app launch
 (Linux: `~/.local/share/applications/bgcm.desktop`; Windows: a Start Menu
 shortcut), so Mod+D / rofi / the Start Menu start it with no terminal
 involved. Re-run it after moving the clone; `npm run install-desktop -- --remove`
-takes it out again. After `git pull`, run `npm install && npm run build` once.
+takes it out again.
+
+### Updating
+
+The app compares its clone with `origin/main` once an hour (`git fetch`, no
+credentials needed for a public repository). The bottom line of the Folders
+pane shows the running version and commit; click it to check again. When the
+repository is ahead it reads **Update available (n)** (hover for the commits)
+and the **Update** button types
+
+```bash
+node <clone>/cli/bgcm.js update            # git pull --ff-only && npm ci && npm run build
+node <clone>/cli/bgcm.js update --check    # only report; add --json for the app's view
+```
+
+into the embedded terminal, so every step and every error is in view. When
+the new bundle is on disk the line offers **Restart**, which replaces the
+server process in place (same port, same token, so the window simply
+reconnects) and gives the terminal a fresh shell. The server never restarts on
+its own. A clone with modified tracked files, or on a branch that does not
+track `origin`, is never updated automatically: that is a development
+checkout, and `git` in it is yours.
 
 Optional: `npm link` gives a `bgcm` command on `PATH`.
 

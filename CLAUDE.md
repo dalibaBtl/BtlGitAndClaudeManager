@@ -74,6 +74,15 @@ a pty** per connected page. Contracts between them are in
   `claude/commands/prepare-commits.md` is the Claude Code command that writes
   these files; when the schema changes, change that file in the same commit.
 
+- `update.ts` (pure part in `shared/update.ts`): self-update. `bgcm update --check` compares the clone with
+  `origin/main` (hourly from the server, `UpdateState` pushed to clients);
+  `bgcm update` runs `git pull --ff-only`, `npm ci`, `npm run build` with the
+  terminal as stdio and is typed, never run hidden. Dirty or detached clones
+  are never updated. The server watches `dist/server.js` and offers
+  **Restart**; `POST /api/restart` re-runs the launcher with `--reuse` on the
+  same port, token in `$BGCM_TOKEN` (never argv), dropped by the launcher
+  before any shell inherits it.
+
 ### Web (`src/web/`)
 
 - `state.ts`: all signals plus the actions (`selectRepo`, `reloadRepo`,
