@@ -288,6 +288,27 @@ select.mode {
 .legend .local {
   color: var(--local);
 }
+/* the app's own version and update offer, below the legend */
+.nav-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--fg-faint);
+  white-space: nowrap;
+}
+.nav-foot span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.nav-foot.warn {
+  color: var(--dirty);
+}
 .row .scanning {
   color: var(--accent);
 }

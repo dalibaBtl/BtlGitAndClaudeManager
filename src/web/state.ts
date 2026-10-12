@@ -9,6 +9,7 @@ import type {
   RepoFile,
   RepoSummary,
   ServerMessage,
+  UpdateState,
 } from '../shared/types.js';
 import { api, socket } from './api.js';
 
@@ -67,6 +68,11 @@ export interface Notice {
   level: 'info' | 'error';
   text: string;
 }
+/** Where this installation stands against the repository; `null` until the first check. */
+export const update = signal<UpdateState | null>(null);
+/** A newer build is on disk than the one the server runs; a restart picks it up. */
+export const updateBuilt = signal(false);
+
 export const notices = signal<Notice[]>([]);
 let noticeSeq = 0;
 
@@ -344,6 +350,10 @@ export function applyServerMessage(msg: ServerMessage): void {
       break;
     case 'prepared':
       if (msg.repo === selectedRepo.value) prepared.value = msg.items;
+      break;
+    case 'update':
+      update.value = msg.state;
+      updateBuilt.value = msg.built;
       break;
     case 'notice':
       notify(msg.level, msg.text);

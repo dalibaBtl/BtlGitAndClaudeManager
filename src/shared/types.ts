@@ -141,6 +141,34 @@ export interface AppConfig {
 }
 
 /** Messages pushed from server to client over the WebSocket. */
+// ---- self-update -------------------------------------------------------------
+
+/**
+ * Why the clone must not be updated in place: `dirty` has local changes
+ * (a development checkout), `detached` is not on a branch that tracks
+ * `origin`, `offline` could not reach the remote (the counts are then from
+ * the last successful fetch).
+ */
+export type UpdateBlocker = 'dirty' | 'detached' | 'offline';
+
+/** Where this installation stands against `origin/main`, from `bgcm update --check`. */
+export interface UpdateState {
+  /** `version` from package.json of the running clone. */
+  version: string;
+  /** Short hash of the checked-out commit. */
+  commit: string;
+  branch: string | null;
+  /** Commits on `origin/main` that this clone does not have. */
+  behind: number;
+  /** Subjects of those commits, newest first, at most {@link UPDATE_SUBJECTS_SHOWN}. */
+  subjects: string[];
+  blocked: UpdateBlocker | null;
+  /** Epoch milliseconds of the check. */
+  checkedAt: number;
+}
+
+export const UPDATE_SUBJECTS_SHOWN = 20;
+
 export type ServerMessage =
   | { type: 'config'; config: AppConfig }
   | { type: 'folders'; items: FolderNode[] }
@@ -152,6 +180,7 @@ export type ServerMessage =
   | { type: 'prepared'; repo: string; items: PreparedCommit[] }
   | { type: 'term-data'; data: string }
   | { type: 'term-exit'; code: number }
+  | { type: 'update'; state: UpdateState | null; built: boolean }
   | { type: 'notice'; level: 'info' | 'error'; text: string };
 
 /**
@@ -175,7 +204,8 @@ export type TerminalAction =
   | { action: 'switch-back'; repo: string }
   | { action: 'branch-here'; repo: string; name: string }
   | { action: 'reword'; repo: string; sha: string; message: string }
-  | { action: 'commit'; repo: string; id: string };
+  | { action: 'commit'; repo: string; id: string }
+  | { action: 'app-update' };
 
 /**
  * How a pull integrates upstream changes. `ff-only` is the default because it

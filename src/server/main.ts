@@ -1,5 +1,6 @@
+import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, openSync, statSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
@@ -14,6 +15,7 @@ import type {
   RepoSummary,
   ServerMessage,
   TerminalAction,
+  UpdateState,
 } from '../shared/types.js';
 import { cacheDir, loadConfig, saveConfig } from './config.js';
 import { onPath, openTerminal, openWithDefault } from './external.js';
@@ -23,8 +25,12 @@ import { addPrepared, commitSteps, listPrepared, removePrepared, shellQuote } fr
 import { listSubdirs, scanRoot } from './scanner.js';
 import { SessionIndex, claudeProjectsDir } from './sessions.js';
 import { Terminal } from './terminal.js';
+import { checkUpdate, printCheck, repoRoot, runUpdate, watchDist } from './update.js';
 import { RepoWatcher } from './watch.js';
 import { watch as fsWatch } from 'node:fs';
+
+/** The launcher's `update` subcommand lives in this bundle too; one build, one import. */
+export { printCheck, repoRoot, runUpdate };
 
 /** Options accepted by {@link startServer}. */
 export interface ServerOptions {
@@ -34,6 +40,12 @@ export interface ServerOptions {
   keepAlive: boolean;
   /** Directory of the built front-end (`index.html`, `main.js`, `main.css`). */
   webDir: string;
+  /**
+   * Token to accept instead of a fresh random one. Only an in-place restart
+   * passes it (through the environment, never argv), so the windows that hold
+   * the old URL reconnect to the new process.
+   */
+  token?: string;
   /**
    * A repo to make reachable on start: when no configured root contains it,
    * its parent directory is added as a root so the UI can select it.
@@ -49,6 +61,8 @@ export interface RunningServer {
 
 /** Milliseconds between background refreshes of repo summaries and sessions. */
 const REFRESH_INTERVAL = 60_000;
+/** How often the clone is compared with `origin/main`; a fetch per hour is cheap and the check is also on demand. */
+const UPDATE_CHECK_INTERVAL = 3_600_000;
 /** Grace period before exiting once the last client is gone. */
 const IDLE_EXIT_MS = 10_000;
 
@@ -60,7 +74,7 @@ const IDLE_EXIT_MS = 10_000;
  * memory and is replayed to each new client on connect.
  */
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
-  const token = randomBytes(24).toString('base64url');
+  const token = opts.token ?? randomBytes(24).toString('base64url');
   const config = await loadConfig();
   if (opts.openRepo && !config.roots.some((r) => relativeTo(r, opts.openRepo!) !== null)) {
     config.roots.push(path.dirname(opts.openRepo));
@@ -91,18 +105,72 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (n === 0) idleTimer = setTimeout(() => process.exit(0), IDLE_EXIT_MS);
   };
 
-  await new Promise<void>((resolve) => server.listen(opts.port, '127.0.0.1', resolve));
+  await listen(server, opts.port);
   const addr = server.address();
   const port = typeof addr === 'object' && addr ? addr.port : opts.port;
-  app.start();
-  return {
-    url: `http://127.0.0.1:${port}/?t=${token}`,
-    close: () => {
-      app.stop();
-      wss.close();
-      server.close();
-    },
+  const close = () => {
+    app.stop();
+    wss.close();
+    server.close();
+    server.closeAllConnections();
   };
+  app.onRestart = () => {
+    close();
+    restartInPlace(port, token, opts.keepAlive);
+  };
+  app.start();
+  return { url: `http://127.0.0.1:${port}/?t=${token}`, close };
+}
+
+/**
+ * Binds the port. A fixed port is retried for a few seconds: after an in-place
+ * restart the previous process may still be letting go of it.
+ */
+async function listen(server: http.Server, port: number): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(port, '127.0.0.1', () => {
+          server.off('error', reject);
+          resolve();
+        });
+      });
+      return;
+    } catch (e) {
+      const busy = (e as NodeJS.ErrnoException).code === 'EADDRINUSE';
+      if (!busy || port === 0 || attempt >= 25) throw e;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+}
+
+/**
+ * Starts a fresh server process on the same port with the same token and
+ * exits this one. The launcher is re-run as it was started (`process.argv`),
+ * with `--reuse` so it neither opens another window nor invents a token; the
+ * token travels in the environment, which the launcher clears before anything
+ * else (the terminal's shell) inherits it. The process's initial environment
+ * stays readable to the same user, as is the URL in `server.log`; other users
+ * see neither. The windows keep their URL and reconnect on their own; their
+ * terminals start a new shell.
+ */
+function restartInPlace(port: number, token: string, keepAlive: boolean): void {
+  const [script, ...rest] = process.argv.slice(1);
+  if (!script) throw new Error('cannot restart: launcher path unknown');
+  const args = rest.filter((a, i, all) => a !== '--port' && all[i - 1] !== '--port');
+  if (!args.includes('--reuse')) args.push('--reuse');
+  if (keepAlive && !args.includes('--keep-alive')) args.push('--keep-alive');
+  mkdirSync(cacheDir(), { recursive: true });
+  const log = openSync(path.join(cacheDir(), 'server.log'), 'a');
+  const child = spawn(process.execPath, [script, ...args, '--port', String(port)], {
+    detached: true,
+    stdio: ['ignore', log, log],
+    windowsHide: true,
+    env: { ...process.env, BGCM_TOKEN: token },
+  });
+  child.unref();
+  setTimeout(() => process.exit(0), 200);
 }
 
 /** Per-connection state. */
@@ -125,6 +193,13 @@ class App {
   private scans = new Map<string, AbortController>();
   private sessionIndex = new SessionIndex();
   private refreshTimer: NodeJS.Timeout | null = null;
+  private updateTimer: NodeJS.Timeout | null = null;
+  private stopDistWatch: (() => void) | null = null;
+  private update: UpdateState | null = null;
+  /** `dist/server.js` changed since this process loaded it. */
+  private built = false;
+  /** Set by {@link startServer}; restarts this process in place. */
+  onRestart: () => void = () => undefined;
   private sessionWatcher: ReturnType<typeof fsWatch> | null = null;
   private sessionDebounce: NodeJS.Timeout | null = null;
 
@@ -139,6 +214,12 @@ class App {
       void this.refreshSummaries();
       void this.refreshSessions();
     }, REFRESH_INTERVAL);
+    void this.checkForUpdate();
+    this.updateTimer = setInterval(() => void this.checkForUpdate(), UPDATE_CHECK_INTERVAL);
+    this.stopDistWatch = watchDist(path.join(repoRoot(), 'dist'), () => {
+      this.built = true;
+      this.broadcast(this.updateSnapshot());
+    });
     try {
       this.sessionWatcher = fsWatch(
         claudeProjectsDir(),
@@ -154,8 +235,20 @@ class App {
     }
   }
 
+  /** Compares the clone with `origin/main` and tells every window; failures leave the last state. */
+  async checkForUpdate(): Promise<void> {
+    this.update = await checkUpdate(repoRoot());
+    this.broadcast(this.updateSnapshot());
+  }
+
+  updateSnapshot(): Extract<ServerMessage, { type: 'update' }> {
+    return { type: 'update', state: this.update, built: this.built };
+  }
+
   stop(): void {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
+    if (this.updateTimer) clearInterval(this.updateTimer);
+    this.stopDistWatch?.();
     this.sessionWatcher?.close();
     for (const c of this.scans.values()) c.abort();
     for (const c of this.clients) {
@@ -182,6 +275,7 @@ class App {
     }
     this.send(client, { type: 'repo-summary', items: [...this.summaries.values()] });
     this.send(client, { type: 'sessions', items: this.sessions });
+    this.send(client, this.updateSnapshot());
 
     ws.on('message', (raw) => {
       let msg: ClientMessage;
@@ -254,6 +348,9 @@ class App {
   private async buildSteps(run: TerminalAction, terminal: Terminal): Promise<string[]> {
     const cd = (dir: string) => `cd ${shellQuote(dir)}`;
     switch (run.action) {
+      case 'app-update':
+        // The clone, not a repo the scanner knows; the launcher works from any cwd.
+        return [`node ${shellQuote(path.join(repoRoot(), 'cli', 'bgcm.js'))} update`];
       case 'cd':
         return [cd(run.dir)];
       case 'push': {
@@ -701,6 +798,18 @@ async function handleHttp(
       return;
     case 'GET /api/github/repos':
       sendJson(res, 200, { repos: await github.listRepos() });
+      return;
+    case 'GET /api/update':
+      sendJson(res, 200, app.updateSnapshot());
+      return;
+    case 'POST /api/update/check':
+      await app.checkForUpdate();
+      sendJson(res, 200, app.updateSnapshot());
+      return;
+    case 'POST /api/restart':
+      sendJson(res, 200, { ok: true });
+      // Answer first: the socket is gone the moment the listener closes.
+      setTimeout(() => app.onRestart(), 100);
       return;
     case 'GET /api/env':
       sendJson(res, 200, {

@@ -23,6 +23,37 @@ async function load() {
   return { state, FolderTree, RepoTree, DiffView };
 }
 
+describe('UpdateFooter', () => {
+  const base = {
+    version: '0.1.0',
+    commit: 'abc1234',
+    branch: 'main',
+    behind: 0,
+    subjects: [],
+    blocked: null,
+    checkedAt: 0,
+  };
+
+  it('shows the version, Update when behind on a clean clone, Restart after a build', async () => {
+    const { state } = await load();
+    const { UpdateFooter } = await import('../src/web/components/UpdateFooter.jsx');
+    state.update.value = base;
+    expect(render(<UpdateFooter />)).toContain('0.1.0 · abc1234');
+    state.update.value = { ...base, behind: 2, blocked: 'dirty' };
+    let html = render(<UpdateFooter />);
+    expect(html).toContain('local changes');
+    expect(html).not.toContain('Update');
+    state.update.value = { ...base, behind: 2, subjects: ['Second', 'First'] };
+    html = render(<UpdateFooter />);
+    expect(html).toContain('Update available (2)');
+    expect(html).toContain('Second');
+    state.updateBuilt.value = true;
+    expect(render(<UpdateFooter />)).toContain('Restart');
+    state.updateBuilt.value = false;
+    state.update.value = null;
+  });
+});
+
 describe('FolderTree', () => {
   it('colours repos, shows dirty counts and sessions, honours hidden and dirty-only', async () => {
     const { state, FolderTree } = await load();

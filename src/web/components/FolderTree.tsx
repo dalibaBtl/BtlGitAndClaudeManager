@@ -22,6 +22,7 @@ import {
 import { openMenu, type MenuItem } from './ContextMenu.jsx';
 import { askConfirm, askFolder, askPick, askText } from './Dialogs.jsx';
 import { githubStatus } from './GitHubChip.jsx';
+import { UpdateFooter } from './UpdateFooter.jsx';
 
 const expanded = signal<Set<string>>(new Set());
 
@@ -123,6 +124,7 @@ export function FolderTree() {
         <span class="synced">■ synced</span>
         <span class="local">■ no upstream</span>
       </footer>
+      <UpdateFooter />
     </section>
   );
 }

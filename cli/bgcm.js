@@ -10,13 +10,20 @@
 //                  background child, handy for debugging
 //   --port <n>     fixed port (default: a free one)
 //   --repo <dir>   open directly on this repository (`.` works); its root folder is added if needed
+//   --reuse        internal: started by a running server to replace itself; no window,
+//                  token taken from $BGCM_TOKEN
+//
+// Subcommands:
+//   update [--check] [--json]   bring this clone to origin/main and rebuild; --check only reports
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, openSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const { startServer, cacheDir } = await import(path.join(here, '..', 'dist', 'server.js'));
+const { startServer, cacheDir, printCheck, runUpdate, repoRoot } = await import(
+  path.join(here, '..', 'dist', 'server.js')
+);
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
@@ -25,6 +32,13 @@ const value = (name) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 const port = Number(value('--port') ?? 0);
+// Read and drop at once: the terminal's shell inherits this environment.
+const reusedToken = process.env.BGCM_TOKEN;
+delete process.env.BGCM_TOKEN;
+if (args[0] === 'update') {
+  const root = repoRoot();
+  process.exit(flag('--check') ? await printCheck(root, flag('--json')) : await runUpdate(root));
+}
 const repo = value('--repo') ? path.resolve(value('--repo')) : undefined;
 if (repo && !existsSync(path.join(repo, '.git'))) {
   console.error(`${repo} is not a git repository`);
@@ -44,10 +58,11 @@ async function runServer() {
     keepAlive: flag('--keep-alive') || flag('--no-open'),
     webDir: path.join(here, '..', 'dist', 'web'),
     openRepo: repo,
+    token: flag('--reuse') ? reusedToken : undefined,
   });
   const url = repo ? `${server.url}&repo=${encodeURIComponent(repo)}` : server.url;
   console.log(url);
-  if (!flag('--no-open')) openAppWindow(url);
+  if (!flag('--no-open') && !flag('--reuse')) openAppWindow(url);
 }
 
 /**
