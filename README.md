@@ -168,6 +168,42 @@ Then, in any repo, `/prepare-commits` (optionally with a hint such as
 `/prepare-commits "one commit"`) fills the queue, and you send each commit to
 the terminal from bgcm.
 
+## Claude usage
+
+The **Claude usage** panel under the folder tree shows the signed-in account
+(from `claude auth status --json`) and the 5-hour and weekly limits with the
+time to reset, like the panel in the VS Code extension.
+
+The numbers come from Claude Code's status line payload, the only place it
+publishes them; bgcm reads no credentials and calls no API. **Connect** in the
+panel puts `cli/statusline-tap.js` in front of your status line:
+
+- `statusLine.command` in `~/.claude/settings.json` becomes
+  `"<node>" "<clone>/cli/statusline-tap.js"`; nothing else in the file
+  changes. The previous `statusLine` is kept in `<config>/bgcm/statusline.json`
+  (`~/.config/bgcm`, `%APPDATA%\bgcm`).
+- On every refresh the tap records the numbers in `<cache>/bgcm/usage.json`
+  (`~/.cache/bgcm`, `%LOCALAPPDATA%\bgcm`), then runs your previous command
+  with the same input and prints its output, so your status line looks as
+  before. Without a previous one it prints `5h 18% · 7d 42%`.
+- **Disconnect** puts the previous `statusLine` back exactly as it was.
+- When the clone moves, bgcm re-points the command at its next start.
+- When sessions are active but nothing reports (for example after
+  `/statusline` replaced the command), the panel says so and offers Connect
+  again.
+
+Any session on the machine updates the numbers after each response, so the
+panel says how old they are: usage on claude.ai or another computer appears
+after the next response here. Limits are reported for Pro and Max sign-ins
+only; a model-specific weekly limit is not part of the payload. On Windows the
+previous command is run through `cmd.exe`.
+
+To wire it by hand instead, pipe the payload from your own status line script:
+
+```bash
+echo "$PAYLOAD" | node <clone>/cli/statusline-tap.js --quiet 2>/dev/null
+```
+
 ## Going back in history
 
 Right-click a commit column for three ways back to an older state. They differ
