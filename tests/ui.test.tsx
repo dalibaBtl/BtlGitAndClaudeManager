@@ -54,6 +54,74 @@ describe('UpdateFooter', () => {
   });
 });
 
+describe('UsagePanel', () => {
+  const base = {
+    account: { email: 'me@example.com', plan: 'max' },
+    fiveHour: null,
+    sevenDay: null,
+    sampledAt: null,
+    seenAt: null,
+    tap: 'disconnected' as const,
+    silent: false,
+    statusLine: 'bash ~/.claude/statusline.sh',
+    tapCommand: '"/usr/bin/node" "/opt/bgcm/cli/statusline-tap.js"',
+  };
+
+  it('offers Connect, then waits, then shows the windows with 0 % after a reset', async () => {
+    const { state } = await load();
+    const { UsagePanel } = await import('../src/web/components/UsagePanel.jsx');
+    state.usageCollapsed.value = false;
+    state.usage.value = base;
+    let html = render(<UsagePanel />);
+    expect(html).toContain('me@example.com');
+    expect(html).toContain('Connect');
+
+    state.usage.value = { ...base, tap: 'connected' };
+    html = render(<UsagePanel />);
+    expect(html).toContain('Waiting for the next Claude Code response');
+    expect(html).not.toContain('Connect</button>');
+
+    const now = Date.now();
+    state.usage.value = {
+      ...base,
+      tap: 'connected',
+      fiveHour: { usedPercentage: 18, resetsAt: Math.floor(now / 1000) + 39 * 60 + 30 },
+      sevenDay: { usedPercentage: 42, resetsAt: Math.floor(now / 1000) - 10 },
+      sampledAt: now - 5 * 60_000,
+      seenAt: now - 5 * 60_000,
+    };
+    html = render(<UsagePanel />);
+    expect(html).toContain('Session (5h)');
+    expect(html).toContain('18%');
+    expect(html).toContain('Resets in 39m');
+    expect(html).toContain('usage-row expired');
+    expect(html).toContain('as of 5m ago');
+    expect(html).toContain('Disconnect');
+    expect(html).not.toContain('hint');
+
+    state.usageCollapsed.value = true;
+    html = render(<UsagePanel />);
+    expect(html).toContain('5h 18% · 7d 0%');
+    expect(html).not.toContain('Session (5h)');
+    state.usageCollapsed.value = false;
+    state.usage.value = null;
+  });
+
+  it('warns when a connected tap is silent, when it was replaced, and on a broken settings.json', async () => {
+    const { state } = await load();
+    const { UsagePanel } = await import('../src/web/components/UsagePanel.jsx');
+    state.usageCollapsed.value = false;
+    const seen = { seenAt: Date.now(), fiveHour: { usedPercentage: 5, resetsAt: 9e9 } };
+    state.usage.value = { ...base, ...seen, tap: 'connected', silent: true };
+    expect(render(<UsagePanel />)).toContain('has not reported');
+    state.usage.value = { ...base, ...seen };
+    expect(render(<UsagePanel />)).toContain('no longer connected');
+    state.usage.value = { ...base, tap: 'unreadable' };
+    expect(render(<UsagePanel />)).toContain('does not parse');
+    state.usage.value = null;
+  });
+});
+
 describe('FolderTree', () => {
   it('colours repos, shows dirty counts and sessions, honours hidden and dirty-only', async () => {
     const { state, FolderTree } = await load();

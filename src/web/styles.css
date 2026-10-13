@@ -288,6 +288,110 @@ select.mode {
 .legend .local {
   color: var(--local);
 }
+/* Claude subscription usage, between the legend and the version line */
+.usage {
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.usage header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.usage header .title {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.usage header .summary {
+  margin-left: auto;
+  color: var(--fg-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.usage-body {
+  padding: 0 8px 6px;
+}
+.usage .account {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage .account .plan {
+  color: var(--claude);
+  text-transform: capitalize;
+}
+.usage-row {
+  margin-bottom: 6px;
+}
+.usage-row .line {
+  display: flex;
+  justify-content: space-between;
+  color: var(--fg);
+}
+.usage-row .bar {
+  height: 4px;
+  margin: 3px 0 2px;
+  background: var(--bg-hover);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.usage-row .fill {
+  height: 100%;
+  background: var(--fg-dim);
+}
+.usage-row .fill.mid {
+  background: var(--dirty);
+}
+.usage-row .fill.high {
+  background: var(--del);
+}
+.usage-row .resets,
+.usage .age {
+  color: var(--fg-faint);
+}
+.usage-row.expired .line {
+  color: var(--fg-dim);
+}
+.usage .hint {
+  margin: 0;
+  color: var(--fg-faint);
+  white-space: normal;
+}
+.usage .hint.warn {
+  color: var(--dirty);
+}
+.usage .hint button {
+  display: block;
+  margin-top: 4px;
+}
+.usage .age {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--fg-faint);
+  text-decoration: underline;
+}
+button.link:hover:not(:disabled) {
+  color: var(--fg);
+}
+.dialog > p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* the app's own version and update offer, below the legend */
 .nav-foot {
   display: flex;

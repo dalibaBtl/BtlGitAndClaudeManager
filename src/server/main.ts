@@ -16,6 +16,7 @@ import type {
   ServerMessage,
   TerminalAction,
   UpdateState,
+  UsageState,
 } from '../shared/types.js';
 import { cacheDir, loadConfig, saveConfig } from './config.js';
 import { onPath, openTerminal, openWithDefault } from './external.js';
@@ -26,6 +27,10 @@ import { listSubdirs, scanRoot } from './scanner.js';
 import { SessionIndex, claudeProjectsDir } from './sessions.js';
 import { Terminal } from './terminal.js';
 import { checkUpdate, printCheck, repoRoot, runUpdate, watchDist } from './update.js';
+import { readAccount, readUsage, watchUsage } from './usage.js';
+import * as statusLine from './statusline.js';
+import { tapCommand } from '../shared/statusline.js';
+import { isSilent } from '../shared/usage.js';
 import { RepoWatcher } from './watch.js';
 import { watch as fsWatch } from 'node:fs';
 
@@ -196,6 +201,18 @@ class App {
   private updateTimer: NodeJS.Timeout | null = null;
   private stopDistWatch: (() => void) | null = null;
   private update: UpdateState | null = null;
+  private usage: UsageState = {
+    account: null,
+    fiveHour: null,
+    sevenDay: null,
+    sampledAt: null,
+    seenAt: null,
+    tap: 'disconnected',
+    silent: false,
+    statusLine: null,
+    tapCommand: '',
+  };
+  private stopUsageWatch: (() => void) | null = null;
   /** `dist/server.js` changed since this process loaded it. */
   private built = false;
   /** Set by {@link startServer}; restarts this process in place. */
@@ -220,6 +237,9 @@ class App {
       this.built = true;
       this.broadcast(this.updateSnapshot());
     });
+    void this.loadAccount();
+    void this.repairTap();
+    this.stopUsageWatch = watchUsage(cacheDir(), () => void this.refreshUsage());
     try {
       this.sessionWatcher = fsWatch(
         claudeProjectsDir(),
@@ -245,10 +265,88 @@ class App {
     return { type: 'update', state: this.update, built: this.built };
   }
 
+  /** Asks the Claude Code CLI who is signed in; once per launch, the account rarely changes. */
+  private async loadAccount(): Promise<void> {
+    this.usage = { ...this.usage, account: await readAccount() };
+    this.broadcast(this.usageSnapshot());
+  }
+
+  /**
+   * The command that runs this clone's tap with this node. Computed per call:
+   * `process.execPath` is stable, but a quote in a path makes it throw, and
+   * that has to surface on Connect rather than at start.
+   */
+  private tapCommand(): string {
+    return tapCommand(process.execPath, path.join(repoRoot(), 'cli', 'statusline-tap.js'));
+  }
+
+  /** Re-points a connected tap at this clone when it moved, then reads the state. */
+  private async repairTap(): Promise<void> {
+    try {
+      if (await statusLine.repair(this.tapCommand())) {
+        process.stderr.write(`bgcm: status line tap now points at ${repoRoot()}\n`);
+      }
+    } catch {
+      // a quote in the path: leave settings.json alone; Connect reports why
+    }
+    await this.refreshUsage();
+  }
+
+  /**
+   * Re-reads the tap's sample and Claude Code's `statusLine`, and works out
+   * whether a connected tap has gone quiet. Called when the sample changes,
+   * after every session rescan (that is when activity is known), and after
+   * connecting or disconnecting.
+   */
+  async refreshUsage(): Promise<void> {
+    const [sample, tap] = await Promise.all([readUsage(cacheDir()), statusLine.tapStatus()]);
+    let command = '';
+    try {
+      command = this.tapCommand();
+    } catch {
+      // shown as an error when the user tries to connect
+    }
+    const lastActivity = this.sessions.reduce<number | null>(
+      (max, s) => (max === null || s.modified > max ? s.modified : max),
+      null,
+    );
+    this.usage = {
+      ...this.usage,
+      fiveHour: sample?.fiveHour ?? this.usage.fiveHour,
+      sevenDay: sample?.sevenDay ?? this.usage.sevenDay,
+      sampledAt: sample ? sample.at : this.usage.sampledAt,
+      seenAt: sample ? sample.seen : this.usage.seenAt,
+      tap: tap.state,
+      silent:
+        tap.state === 'connected' &&
+        isSilent(lastActivity, sample?.seen ?? null, tap.link?.connectedAt ?? 0),
+      statusLine: tap.command,
+      tapCommand: command,
+    };
+    this.broadcast(this.usageSnapshot());
+  }
+
+  /** Puts the tap in front of the user's status line; see `server/statusline.ts`. */
+  async connectTap(): Promise<void> {
+    await statusLine.connect(this.tapCommand());
+    await this.refreshUsage();
+  }
+
+  /** Gives the status line back as it was before connecting. */
+  async disconnectTap(): Promise<void> {
+    await statusLine.disconnect();
+    await this.refreshUsage();
+  }
+
+  usageSnapshot(): Extract<ServerMessage, { type: 'usage' }> {
+    return { type: 'usage', state: this.usage };
+  }
+
   stop(): void {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     if (this.updateTimer) clearInterval(this.updateTimer);
     this.stopDistWatch?.();
+    this.stopUsageWatch?.();
     this.sessionWatcher?.close();
     for (const c of this.scans.values()) c.abort();
     for (const c of this.clients) {
@@ -276,6 +374,7 @@ class App {
     this.send(client, { type: 'repo-summary', items: [...this.summaries.values()] });
     this.send(client, { type: 'sessions', items: this.sessions });
     this.send(client, this.updateSnapshot());
+    this.send(client, this.usageSnapshot());
 
     ws.on('message', (raw) => {
       let msg: ClientMessage;
@@ -537,6 +636,7 @@ class App {
   private async refreshSessions(): Promise<void> {
     this.sessions = await this.sessionIndex.scan();
     this.broadcast({ type: 'sessions', items: this.sessions });
+    await this.refreshUsage();
   }
 
   private async repoChanged(repo: string): Promise<void> {
@@ -801,6 +901,17 @@ async function handleHttp(
       return;
     case 'GET /api/update':
       sendJson(res, 200, app.updateSnapshot());
+      return;
+    case 'GET /api/usage':
+      sendJson(res, 200, app.usageSnapshot());
+      return;
+    case 'POST /api/usage/connect':
+      await app.connectTap();
+      sendJson(res, 200, app.usageSnapshot());
+      return;
+    case 'POST /api/usage/disconnect':
+      await app.disconnectTap();
+      sendJson(res, 200, app.usageSnapshot());
       return;
     case 'POST /api/update/check':
       await app.checkForUpdate();

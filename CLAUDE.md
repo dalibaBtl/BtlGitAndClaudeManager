@@ -83,6 +83,20 @@ a pty** per connected page. Contracts between them are in
   same port, token in `$BGCM_TOKEN` (never argv), dropped by the launcher
   before any shell inherits it.
 
+- `usage.ts` (pure part in `shared/usage.ts`): the Claude usage panel. Numbers
+  come only from `<cache>/usage.json`, written by `cli/statusline-tap.js`
+  from the status line payload (`rate_limits`); the account from
+  `claude auth status --json`. Never read `~/.claude/.credentials.json` or
+  call the undocumented OAuth usage endpoint. The tap is standalone (no
+  `dist/` import) because it runs on every status line refresh; its
+  `cacheDir()`/`configDir()` must match `config.ts`.
+- `statusline.ts` (pure part in `shared/statusline.ts`): the only code that
+  writes Claude Code's `settings.json`, and only `statusLine`. Connect swaps
+  in the tap and keeps the old value in `<config>/statusline.json`; the tap
+  chains to it. Every start re-points a connected tap at this clone. Writes
+  are read-modify-write via temp + rename, through symlinks, file mode kept;
+  an unparseable `settings.json` is never written.
+
 ### Web (`src/web/`)
 
 - `state.ts`: all signals plus the actions (`selectRepo`, `reloadRepo`,

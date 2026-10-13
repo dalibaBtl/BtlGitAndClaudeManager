@@ -3,9 +3,14 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import type { ClaudeSession } from '../shared/types.js';
 
+/** Claude Code's per-user directory: `$CLAUDE_CONFIG_DIR`, else `~/.claude`. */
+export function claudeConfigDir(): string {
+  return process.env.CLAUDE_CONFIG_DIR ?? path.join(homedir(), '.claude');
+}
+
 /** Root of Claude Code's per-project transcript storage. */
 export function claudeProjectsDir(): string {
-  return path.join(process.env.CLAUDE_CONFIG_DIR ?? path.join(homedir(), '.claude'), 'projects');
+  return path.join(claudeConfigDir(), 'projects');
 }
 
 /** Bytes read from the head of a transcript when looking for the id and a label. */

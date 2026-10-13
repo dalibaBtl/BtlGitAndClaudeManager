@@ -10,6 +10,7 @@ import type {
   RepoSummary,
   ServerMessage,
   UpdateState,
+  UsageState,
 } from '../shared/types.js';
 import { api, socket } from './api.js';
 
@@ -72,6 +73,11 @@ export interface Notice {
 export const update = signal<UpdateState | null>(null);
 /** A newer build is on disk than the one the server runs; a restart picks it up. */
 export const updateBuilt = signal(false);
+/** Claude subscription usage as last reported by any session; `null` until the server's snapshot. */
+export const usage = signal<UsageState | null>(null);
+/** Whether the usage panel under the folder tree is folded to its header. Persisted per browser profile. */
+export const usageCollapsed = signal(readFlag('bgcm.usageCollapsed'));
+usageCollapsed.subscribe((v) => writeFlag('bgcm.usageCollapsed', v));
 
 export const notices = signal<Notice[]>([]);
 let noticeSeq = 0;
@@ -354,6 +360,9 @@ export function applyServerMessage(msg: ServerMessage): void {
     case 'update':
       update.value = msg.state;
       updateBuilt.value = msg.built;
+      break;
+    case 'usage':
+      usage.value = msg.state;
       break;
     case 'notice':
       notify(msg.level, msg.text);

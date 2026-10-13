@@ -169,6 +169,52 @@ export interface UpdateState {
 
 export const UPDATE_SUBJECTS_SHOWN = 20;
 
+// ---- Claude usage ------------------------------------------------------------
+
+/** One rate-limit window as Claude Code reports it to its status line. */
+export interface UsageWindow {
+  /** 0–100. */
+  usedPercentage: number;
+  /** Epoch seconds when the window resets. */
+  resetsAt: number;
+}
+
+/** The signed-in Claude account, from `claude auth status --json`. */
+export interface ClaudeAccount {
+  email: string | null;
+  /** `subscriptionType`, e.g. `pro` or `max`. */
+  plan: string | null;
+}
+
+/**
+ * Whether Claude Code's `statusLine` runs the bgcm tap: `unreadable` when
+ * `settings.json` exists but does not parse, which bgcm never overwrites.
+ */
+export type TapState = 'connected' | 'disconnected' | 'unreadable';
+
+/**
+ * Claude subscription usage as last seen by any Claude Code session on this
+ * machine. The numbers come from the status line payload, which the
+ * `cli/statusline-tap.js` script copies into the cache dir, so they are only
+ * as fresh as the last response any session received.
+ */
+export interface UsageState {
+  account: ClaudeAccount | null;
+  fiveHour: UsageWindow | null;
+  sevenDay: UsageWindow | null;
+  /** Epoch ms of the last payload that carried rate limits; `null` when none has. */
+  sampledAt: number | null;
+  /** Epoch ms of the last payload of any kind; `null` when the tap has never run. */
+  seenAt: number | null;
+  tap: TapState;
+  /** Connected, yet sessions have been active for a while without the tap reporting. */
+  silent: boolean;
+  /** The status line command in `settings.json` now, for the connect dialog. */
+  statusLine: string | null;
+  /** The command connecting writes. */
+  tapCommand: string;
+}
+
 export type ServerMessage =
   | { type: 'config'; config: AppConfig }
   | { type: 'folders'; items: FolderNode[] }
@@ -181,6 +227,7 @@ export type ServerMessage =
   | { type: 'term-data'; data: string }
   | { type: 'term-exit'; code: number }
   | { type: 'update'; state: UpdateState | null; built: boolean }
+  | { type: 'usage'; state: UsageState }
   | { type: 'notice'; level: 'info' | 'error'; text: string };
 
 /**
