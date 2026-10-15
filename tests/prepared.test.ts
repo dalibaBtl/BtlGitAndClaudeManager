@@ -54,15 +54,33 @@ describe('prepared commit queue', () => {
         createdAt: '',
       },
       '/tmp/msg.txt',
+      new Set(["it's.ts", 'b c.ts']),
     );
     expect(steps).toEqual(["git add -A -- 'it''s.ts' 'b c.ts'", "git commit -F '/tmp/msg.txt'"]);
     expect(
       commitSteps(
         { version: 1, id: 'i', message: 'm', files: [], createdBy: 't', createdAt: '' },
         '/m',
+        new Set(),
       ),
     ).toEqual(['git add -A', "git commit -F '/m'"]);
     expect(shellQuote('plain')).toBe("'plain'");
+  });
+
+  it('drops listed files that have no changes', () => {
+    const item = {
+      version: 1 as const,
+      id: 'i',
+      message: 'm',
+      files: ['kept.ts', 'gone.ts', 'old.ts'],
+      createdBy: 't',
+      createdAt: '',
+    };
+    expect(commitSteps(item, '/m', new Set(['kept.ts', 'old.ts', 'new.ts']))).toEqual([
+      "git add -A -- 'kept.ts' 'old.ts'",
+      "git commit -F '/m'",
+    ]);
+    expect(() => commitSteps(item, '/m', new Set(['other.ts']))).toThrow('nothing to commit');
   });
 
   it('chains steps per shell dialect', () => {

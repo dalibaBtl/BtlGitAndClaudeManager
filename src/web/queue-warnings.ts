@@ -31,7 +31,7 @@ export function queueWarnings(
     out.push('nothing to commit: none of its files have changes');
   } else if (unchanged.length > 0) {
     out.push(
-      `${unchanged.length} of ${item.files.length} files have no changes: ${list(unchanged)}`,
+      `${unchanged.length} of ${item.files.length} files have no changes and will be skipped: ${list(unchanged)}`,
     );
   }
 

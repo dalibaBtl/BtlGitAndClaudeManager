@@ -20,7 +20,7 @@ describe('queueWarnings', () => {
   it('flags files without changes, partially and completely', () => {
     const a = item('a', ['x.ts', 'gone.ts']);
     expect(queueWarnings(a, [a], new Set(['x.ts']))).toEqual([
-      '1 of 2 files have no changes: gone.ts',
+      '1 of 2 files have no changes and will be skipped: gone.ts',
     ]);
     expect(queueWarnings(a, [a], new Set())).toEqual([
       'nothing to commit: none of its files have changes',

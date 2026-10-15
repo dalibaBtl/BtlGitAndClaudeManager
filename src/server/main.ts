@@ -577,11 +577,12 @@ class App {
         const msgFile = path.join(dir, `${item.id}.txt`);
         await writeFile(msgFile, item.message.endsWith('\n') ? item.message : item.message + '\n');
         const queued = path.join(run.repo, '.bgcm', 'prepared', item.id + '.json');
-        return [
-          cd(run.repo),
-          ...commitSteps(item, msgFile),
-          terminal.removeFileCommand(shellQuote(queued)),
-        ];
+        const { entries } = await gitOps.status(run.repo, false);
+        const changed = new Set(
+          entries.flatMap((e) => (e.origPath ? [e.path, e.origPath] : [e.path])),
+        );
+        const steps = commitSteps(item, msgFile, changed);
+        return [cd(run.repo), ...steps, terminal.removeFileCommand(shellQuote(queued))];
       }
     }
   }

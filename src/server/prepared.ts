@@ -59,13 +59,27 @@ export async function removePrepared(repo: string, id: string): Promise<void> {
  * Builds the shell steps that execute a prepared commit. The message is
  * written to a temp file by the caller and referenced via `-F`, so quoting
  * only has to handle paths. The caller chains the steps in the terminal's dialect.
+ *
+ * @param item The prepared commit to run.
+ * @param messageFile Path of the file holding the commit message.
+ * @param changed Repo-relative paths that currently have changes, including the
+ *   original path of renames. Listed files outside this set are dropped:
+ *   an unchanged tracked file adds nothing, and a path git no longer knows
+ *   (deleted and committed since preparing) would make `git add` fail and
+ *   stop the chain before the commit.
+ * @returns The `git add` and `git commit` steps.
+ * @throws Error when the commit lists files and none of them has changes.
  */
-export function commitSteps(item: PreparedCommit, messageFile: string): string[] {
-  const add =
-    item.files.length === 0
-      ? 'git add -A'
-      : `git add -A -- ${item.files.map(shellQuote).join(' ')}`;
-  return [add, `git commit -F ${shellQuote(messageFile)}`];
+export function commitSteps(
+  item: PreparedCommit,
+  messageFile: string,
+  changed: ReadonlySet<string>,
+): string[] {
+  const commit = `git commit -F ${shellQuote(messageFile)}`;
+  if (item.files.length === 0) return ['git add -A', commit];
+  const files = item.files.filter((f) => changed.has(f));
+  if (files.length === 0) throw new Error('nothing to commit: none of its files have changes');
+  return [`git add -A -- ${files.map(shellQuote).join(' ')}`, commit];
 }
 
 /** POSIX/PowerShell-safe single quoting; both treat `'…'` literally and escape `'` by doubling. */

@@ -15,7 +15,13 @@ export function PreparedQueue({ repo }: { repo: string }) {
   const items = prepared.value;
   const picked = checkedFiles.value;
   const changed = new Set(
-    repoFiles.value.filter((f) => f.status && f.status.kind !== 'ignored').map((f) => f.path),
+    repoFiles.value.flatMap((f) =>
+      !f.status || f.status.kind === 'ignored'
+        ? []
+        : f.status.origPath
+          ? [f.path, f.status.origPath]
+          : [f.path],
+    ),
   );
 
   const prepare = () =>
