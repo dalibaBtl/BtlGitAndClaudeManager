@@ -527,7 +527,7 @@ button.link:hover:not(:disabled) {
   border-radius: 4px;
   padding: 6px 8px;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 2px 8px;
 }
 .queue-msg {
@@ -544,6 +544,7 @@ button.link:hover:not(:disabled) {
   color: var(--dirty);
   font-size: 11px;
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 .queue-meta {
   grid-column: 1;
