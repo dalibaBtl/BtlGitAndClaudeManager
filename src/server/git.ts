@@ -215,6 +215,15 @@ export function diffCommit(
   return git(repo, ['show', `-U${context}`, '--no-color', '--format=', sha, '--', file]);
 }
 
+/**
+ * Content of `file` at `rev`, or null when the path does not exist there (or
+ * the repo has no commits). The path goes through git rather than the
+ * filesystem, so a path outside the repository is refused by git itself.
+ */
+export function fileAt(repo: string, rev: string, file: string): Promise<string | null> {
+  return git(repo, ['show', '--no-color', '--end-of-options', `${rev}:${file}`]).catch(() => null);
+}
+
 /** Recent history with the files each commit touched. */
 export async function log(repo: string, limit: number): Promise<CommitInfo[]> {
   let out: string;

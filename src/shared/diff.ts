@@ -72,6 +72,30 @@ export function parseUnifiedDiff(text: string): FileDiff[] {
   return files;
 }
 
+/**
+ * Renders an unchanged file as diff text with one all-context hunk, so the
+ * "whole file" view can show a file git has nothing to say about.
+ *
+ * @param path Repo-relative path, used in the `diff --git` header.
+ * @param content The file's text at the compared revision.
+ * @returns Empty for an empty or binary (NUL-containing) file, which keeps the
+ *   "No differences" message instead of an empty hunk or garbled bytes.
+ */
+export function unchangedFileDiff(path: string, content: string): string {
+  if (content === '' || content.includes('\0')) return '';
+  const endsWithNewline = content.endsWith('\n');
+  const lines = (endsWithNewline ? content.slice(0, -1) : content).split('\n');
+  const out = [
+    `diff --git a/${path} b/${path}`,
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -1,${lines.length} +1,${lines.length} @@`,
+    ...lines.map((l) => ` ${l}`),
+  ];
+  if (!endsWithNewline) out.push('\\ No newline at end of file');
+  return `${out.join('\n')}\n`;
+}
+
 /** Turns `a/src/x.ts` into `src/x.ts` and `/dev/null` into `null`. */
 function stripPathPrefix(p: string): string | null {
   const trimmed = p.replace(/\t.*$/, '');

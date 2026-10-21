@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseUnifiedDiff } from '../src/shared/diff.js';
+import { parseUnifiedDiff, unchangedFileDiff } from '../src/shared/diff.js';
 
 describe('parseUnifiedDiff', () => {
   it('parses hunks with running line numbers', () => {
@@ -52,5 +52,25 @@ describe('parseUnifiedDiff', () => {
 
   it('returns nothing for empty input', () => {
     expect(parseUnifiedDiff('')).toEqual([]);
+  });
+});
+
+describe('unchangedFileDiff', () => {
+  it('renders every line as context with matching numbers', () => {
+    const [f] = parseUnifiedDiff(unchangedFileDiff('src/a.ts', 'one\ntwo\n'));
+    expect(f?.newPath).toBe('src/a.ts');
+    const lines = f?.hunks[0]?.lines ?? [];
+    expect(lines.map((l) => l.kind)).toEqual(['context', 'context']);
+    expect(lines[1]).toMatchObject({ text: 'two', oldNo: 2, newNo: 2 });
+  });
+
+  it('marks a missing final newline', () => {
+    const [f] = parseUnifiedDiff(unchangedFileDiff('a.txt', 'only'));
+    expect(f?.hunks[0]?.lines.map((l) => l.kind)).toEqual(['context', 'meta']);
+  });
+
+  it('returns nothing for empty and binary content', () => {
+    expect(unchangedFileDiff('a', '')).toBe('');
+    expect(unchangedFileDiff('a', 'x\0y')).toBe('');
   });
 });

@@ -6,6 +6,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
+import { unchangedFileDiff } from '../shared/diff.js';
 import { relativeTo } from '../shared/paths.js';
 import type {
   AppConfig,
@@ -813,11 +814,17 @@ async function handleHttp(
       const repo = str(q('repo'), 'repo');
       app.assertRepo(repo);
       const file = str(q('file'), 'file');
-      const context = q('full') === '1' ? 1_000_000 : 3;
+      const full = q('full') === '1';
+      const context = full ? 1_000_000 : 3;
       const sha = q('sha');
-      const text = sha
+      let text = sha
         ? await gitOps.diffCommit(repo, sha, file, context)
         : await gitOps.diffWorktree(repo, file, context);
+      // git prints nothing for an unchanged file whatever the context, so the
+      // whole-file view renders the compared revision's content itself.
+      if (full && text === '') {
+        text = unchangedFileDiff(file, (await gitOps.fileAt(repo, sha ?? 'HEAD', file)) ?? '');
+      }
       sendJson(res, 200, { text });
       return;
     }
